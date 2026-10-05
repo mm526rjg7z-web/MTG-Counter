@@ -117,11 +117,15 @@ export function initDialogs({ getGame, actions }) {
     nameInput.select();
   }
 
+  // Name and colour apply live (the board behind the dialog is the preview), so closing the dialog
+  // in any way, including Esc and a tap on the backdrop, never loses an edit.
   swatches.addEventListener('change', (event) => {
     if (editing !== null && event.target.name === 'player-color') actions.recolor(editing, event.target.value);
   });
-  player.addEventListener('close', () => {
+  nameInput.addEventListener('input', () => {
     if (editing !== null) actions.rename(editing, nameInput.value);
+  });
+  player.addEventListener('close', () => {
     editing = null;
   });
 

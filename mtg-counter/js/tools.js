@@ -83,7 +83,9 @@ export function initTools({ getGame, onStarter }) {
   function openResult(rerun) {
     stopTimers();
     again = rerun;
-    resultDlg.showModal();
+    // "Nochmal" re-enters while the overlay is open; older browsers throw when a dialog that is
+    // already open is opened again.
+    if (!resultDlg.open) resultDlg.showModal();
   }
 
   resultDlg.addEventListener('click', (event) => {

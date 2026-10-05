@@ -13,6 +13,7 @@ import { initTools } from './js/tools.js';
 import { createWakeLock } from './js/wakelock.js';
 
 const $ = (id) => document.getElementById(id);
+const TOAST_MS = 2800;
 
 function browserIsSupported() {
   return typeof CSS !== 'undefined'
@@ -64,9 +65,24 @@ function main() {
     haptic.tap();
   }
 
+  // A short note says what was undone: the dock sits where several fingers meet, and with six
+  // fields an accidental undo would otherwise go unnoticed.
+  let toastTimer = 0;
+  function showToast(text) {
+    const toast = $('toast');
+    toast.textContent = text;
+    toast.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      toast.hidden = true;
+    }, TOAST_MS);
+  }
+
   function undoLast() {
+    const entry = lastEntry(model.game);
     const next = undo(model.game);
     if (next === model.game) return;
+    showToast(`Rückgängig: ${summarizeEntry(entry, model.game)}`);
     commit(next);
     haptic.tap();
   }

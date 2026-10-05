@@ -11,6 +11,7 @@ export const REPEAT_MS = 100;
 export const ACCELERATE_AFTER_MS = 1000;
 export const FAST_REPEAT_MS = 200;
 export const FAST_STEP = 5;
+const POINTER_CLICK_WINDOW_MS = 600;
 
 const running = new Set();
 
@@ -25,7 +26,8 @@ if (typeof window !== 'undefined') {
   });
 }
 
-// onStep(size, phase): size is 1 or 5, phase is 'tap' | 'repeat' | 'fast' | 'key'.
+// onStep(size, phase): size is 1 or 5, phase is 'tap' | 'repeat' | 'fast' | 'key' ('key' = activated
+// without a pointer, i.e. keyboard or assistive technology).
 // The caller decides the sign. `accelerate()` can veto the 5-steps (e.g. for small counters).
 export function attachHold(el, onStep, { accelerate = () => true } = {}) {
   let hold = null;
@@ -52,7 +54,17 @@ export function attachHold(el, onStep, { accelerate = () => true } = {}) {
     if (hold) hold.timer = setTimeout(tick, fast ? FAST_REPEAT_MS : REPEAT_MS);
   }
 
+  // A click that follows a pointer interaction was already counted on pointerdown. Only clicks
+  // without a recent pointer (keyboard Enter/Space, screen readers) count on their own. The
+  // time-based check is deliberate: `event.detail === 0` is not reliable, some touch emulations
+  // report 0 for real taps.
+  let lastPointerAt = -Infinity;
+  const markPointer = () => {
+    lastPointerAt = performance.now();
+  };
+
   el.addEventListener('pointerdown', (event) => {
+    markPointer();
     if (hold || event.button !== 0) return;
     event.preventDefault();
     try {
@@ -69,13 +81,13 @@ export function attachHold(el, onStep, { accelerate = () => true } = {}) {
 
   for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
     el.addEventListener(type, (event) => {
+      if (type !== 'lostpointercapture') markPointer();
       if (hold && event.pointerId === hold.pointerId) stop();
     });
   }
 
-  // Keyboard and assistive technology activate buttons with a click that has no pointer (detail 0).
-  el.addEventListener('click', (event) => {
-    if (event.detail === 0) onStep(1, 'key');
+  el.addEventListener('click', () => {
+    if (performance.now() - lastPointerAt > POINTER_CLICK_WINDOW_MS) onStep(1, 'key');
   });
 
   el.addEventListener('contextmenu', (event) => event.preventDefault());
