@@ -7,6 +7,7 @@ import { getColor } from './palette.js';
 import { DICE, flipCoin, pickIndex, randomInt, rollDice } from './random.js';
 
 const MAX_PER_DIE = 10;
+const MAX_TOTAL = 20; // keeps every result on screen: the overlay does not scroll
 const ROLL_MS = 700;
 const DICE_CYCLE_MS = 65;
 const FLIP_MS = 1100;
@@ -51,19 +52,21 @@ export function initTools({ getGame, onStarter }) {
     diceList.append(row);
   }
 
+  const totalDice = () => DICE.reduce((sum, sides) => sum + counts[sides], 0);
+
   function bump(sides, delta) {
+    if (delta > 0 && totalDice() >= MAX_TOTAL) return;
     counts[sides] = Math.min(MAX_PER_DIE, Math.max(0, counts[sides] + delta));
     renderPicker();
   }
 
   function renderPicker() {
-    let total = 0;
+    const total = totalDice();
     for (const [sides, r] of rows) {
-      total += counts[sides];
       r.count.textContent = String(counts[sides]);
       r.row.classList.toggle('is-active', counts[sides] > 0);
       r.minus.disabled = counts[sides] === 0;
-      r.plus.disabled = counts[sides] === MAX_PER_DIE;
+      r.plus.disabled = counts[sides] === MAX_PER_DIE || total >= MAX_TOTAL;
     }
     rollBtn.disabled = total === 0;
     rollBtn.textContent = total === 0 ? 'Würfeln' : `Würfeln (${total})`;

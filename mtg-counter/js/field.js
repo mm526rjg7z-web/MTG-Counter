@@ -120,7 +120,7 @@ export function createField({ cell, playerCount, api }) {
     icon('shield'), h('span', { class: 'tab-label' }, 'Commander'));
   const tabMisc = h('button', { class: 'tab', type: 'button', 'aria-pressed': 'false', 'aria-label': 'Gift, Energie, Erfahrung und Marker', onclick: () => setPage('misc') },
     icon('drop'), h('span', { class: 'tab-label' }, 'Zähler'));
-  const closeBtn = h('button', { class: 'tab tab-close', type: 'button', onclick: () => setOpen(false) }, icon('close'));
+  const closeBtn = h('button', { class: 'tab tab-close', type: 'button', 'aria-label': 'Zähler schließen', onclick: () => setOpen(false) }, icon('close'));
 
   const panel = h('div', { class: 'panel', hidden: true, role: 'group' },
     h('div', { class: 'panel-body' }, cmdRow, miscRow, stepper),
@@ -229,7 +229,7 @@ export function createField({ cell, playerCount, api }) {
 
   // Commander shields take the colour of the player who dealt the damage.
   function makeChip(c) {
-    const svg = icon(c.icon, 'icon chip-icon');
+    const svg = icon(c.icon, `icon chip-icon chip-icon-${c.icon}`);
     if (c.iconColor) svg.style.color = c.iconColor;
     return h('span', { class: c.cls, title: c.label }, svg, c.text ? h('span', {}, c.text) : null);
   }

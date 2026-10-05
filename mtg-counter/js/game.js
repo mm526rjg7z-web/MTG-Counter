@@ -45,10 +45,10 @@ export function defaultName(index) {
 }
 
 export function cleanName(name, index) {
-  const clean = (typeof name === 'string' ? name : '')
-    .replace(/\s+/g, ' ')
-    .trim()
+  // Array.from counts code points, so a limit never cuts an emoji in half.
+  const clean = Array.from((typeof name === 'string' ? name : '').replace(/\s+/g, ' ').trim())
     .slice(0, NAME_MAX_LENGTH)
+    .join('')
     .trim();
   return clean || defaultName(index);
 }

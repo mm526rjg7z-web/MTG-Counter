@@ -971,6 +971,34 @@ try {
       assert.equal(await page.isHidden('#dlg-result'), true, 'Tippen schließt das Overlay');
     });
 
+    await test('höchstens 20 Würfel gleichzeitig, und alle Ergebnisse passen auf den Bildschirm', async () => {
+      await page.click('#btn-menu');
+      await page.click('[data-action=dice]');
+      await page.click('#dice-clear');
+      for (const row of [1, 5]) { // d6 and d20, ten each
+        for (let i = 0; i < 12; i++) {
+          if (await page.locator('.dice-row').nth(row).locator('button').nth(1).isEnabled()) await page.locator('.dice-row').nth(row).locator('button').nth(1).tap();
+        }
+      }
+      // d8 would be die #21: the button is locked, and even a forced click must not add it
+      await page.locator('.dice-row').nth(2).locator('button').nth(1).click({ force: true });
+      assert.equal(await page.locator('.dice-row').nth(2).locator('.dice-count').innerText(), '0', 'der 21. Würfel wird nicht angenommen');
+      for (let row = 0; row < 6; row++) assert.equal(await page.locator('.dice-row').nth(row).locator('button').nth(1).isDisabled(), true, `Plus in Zeile ${row} gesperrt`);
+      assert.match(await page.textContent('#dice-roll'), /\(20\)/);
+      await page.click('#dice-roll');
+      await waitFor(async () => (await page.locator('.die.is-rolling').count()) === 0, { message: 'Würfel fertig' });
+      const boxes = await page.locator('.die').evaluateAll((els) => els.map((el) => { const b = el.getBoundingClientRect(); return { x: b.x, y: b.y, r: b.right, b: b.bottom }; }));
+      assert.equal(boxes.length, 20);
+      for (const b of boxes) assert.ok(b.x >= 0 && b.y >= 0 && b.r <= 390 && b.b <= 844, 'Würfel außerhalb des Bildschirms');
+      await shot(page, 'wuerfel-20');
+      await closeResult();
+      await page.click('#btn-menu');
+      await page.click('[data-action=dice]');
+      await page.click('#dice-clear');
+      await page.locator('.dice-row').nth(5).locator('button').nth(1).tap();
+      await page.keyboard.press('Escape');
+    });
+
     await test('Würfeln ist ohne Auswahl nicht möglich, Zurücksetzen leert die Auswahl', async () => {
       await page.click('#btn-menu');
       await page.click('[data-action=dice]');
@@ -1297,6 +1325,127 @@ try {
     await context.close();
   });
 
+  await group('Barrierefreiheit: Namen, Fokus-Rahmen, Rollen', async () => {
+    const { context, page, problems } = await openApp(browser, server.url);
+    // Every visible control must have an accessible name (aria-label, aria-labelledby, label or text).
+    const unnamed = () => page.evaluate(() => {
+      const visible = (el) => (el.offsetWidth > 0 || el.offsetHeight > 0 || el.getClientRects().length > 0) && !el.closest('[hidden]');
+      const nameOf = (el) => {
+        const labelled = (el.getAttribute('aria-labelledby') ?? '').split(' ').map((id) => document.getElementById(id)?.textContent ?? '').join(' ');
+        const fromLabels = el.labels ? [...el.labels].map((l) => l.textContent).join(' ') : '';
+        return (el.getAttribute('aria-label') || labelled || fromLabels || el.textContent || el.title || '').trim();
+      };
+      return [...document.querySelectorAll('button, input, select, textarea, dialog[open], section[aria-label], [role=status], [role=group], [role=radiogroup]')]
+        .filter(visible)
+        .filter((el) => nameOf(el) === '')
+        .map((el) => `${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ''}${el.className && typeof el.className === 'string' ? `.${el.className.split(' ').join('.')}` : ''}`);
+    });
+
+    await test('Start-Bildschirm: jedes Bedienelement hat einen Namen', async () => {
+      await page.waitForSelector('#setup:not([hidden])');
+      assert.deepEqual(await unnamed(), []);
+    });
+
+    await startGame(page, 4);
+    await test('Spielfeld: jedes Bedienelement hat einen Namen, Tippflächen nennen den Spieler', async () => {
+      assert.deepEqual(await unnamed(), []);
+      assert.equal(await field(page, 1).locator('.zone-minus').getAttribute('aria-label'), 'Spieler 2: Leben verringern');
+      assert.equal(await field(page, 1).locator('.zone-plus').getAttribute('aria-label'), 'Spieler 2: Leben erhöhen');
+      assert.equal(await field(page, 1).locator('.btn5-plus').getAttribute('aria-label'), 'Spieler 2: Leben um 5 erhöhen');
+      assert.equal(await page.getAttribute('#btn-menu', 'aria-label'), 'Menü öffnen');
+      assert.match(await page.getAttribute('#btn-undo', 'aria-label'), /^Rückgängig/);
+    });
+
+    await test('geöffnete Zähler-Panels (beide Seiten): jedes Bedienelement hat einen Namen, Werte stehen im Namen', async () => {
+      for (let seat = 0; seat < 4; seat++) await field(page, seat).locator('.toggle').tap();
+      assert.deepEqual(await unnamed(), []);
+      assert.equal(await field(page, 0).locator('.toggle').getAttribute('aria-expanded'), 'true');
+      const chip = await field(page, 0).locator('.sel-row:not([hidden]) .sel').first().getAttribute('aria-label');
+      assert.match(chip, /^Commander-Schaden von Spieler 2: 0$/);
+      for (let seat = 0; seat < 4; seat++) await field(page, seat).locator('.tab').nth(1).tap();
+      assert.deepEqual(await unnamed(), []);
+      assert.equal(await field(page, 0).locator('.sel-row:not([hidden]) .sel').nth(3).getAttribute('aria-label'), 'Monarch');
+      await field(page, 0).locator('.sel-row:not([hidden]) .sel').nth(3).tap();
+      assert.equal(await field(page, 0).locator('.sel-row:not([hidden]) .sel').nth(3).getAttribute('aria-pressed'), 'true');
+      assert.equal(await field(page, 0).locator('.sel-row:not([hidden]) .sel').nth(3).getAttribute('aria-label'), 'Monarch (aktiv)');
+      for (let seat = 0; seat < 4; seat++) await field(page, seat).locator('.tab-close').tap();
+    });
+
+    await test('alle Dialoge und das Ergebnis-Overlay: Elemente benannt, Dialoge haben einen Titel', async () => {
+      await field(page, 0).locator('.btn5-minus').tap(); // some history to render
+      const surfaces = [
+        ['#dlg-menu', async () => { await page.click('#btn-menu'); }],
+        ['#dlg-dice', async () => { await page.click('#btn-menu'); await page.click('[data-action=dice]'); }],
+        ['#dlg-history', async () => { await page.click('#btn-menu'); await page.click('[data-action=history]'); }],
+        ['#dlg-player', async () => { await field(page, 0).locator('.name').tap(); }],
+        ['#dlg-confirm', async () => { await page.click('#btn-menu'); await page.click('[data-action=new]'); }],
+        ['#dlg-help', async () => { await page.click('#btn-menu'); await page.click('[data-action=help]'); }],
+      ];
+      for (const [selector, open] of surfaces) {
+        await open();
+        await page.waitForSelector(`${selector}[open]`);
+        assert.deepEqual(await unnamed(), [], selector);
+        assert.ok((await page.getAttribute(selector, 'aria-labelledby')) || (await page.getAttribute(selector, 'aria-label')), `${selector} hat keinen Titel`);
+        await page.keyboard.press('Escape');
+        await page.waitForSelector(selector, { state: 'hidden' });
+      }
+      await page.click('#btn-menu');
+      await page.click('[data-action=dice]');
+      await page.click('#dice-roll');
+      await page.waitForSelector('#dlg-result[open]');
+      await waitFor(async () => (await page.locator('.die.is-rolling').count()) === 0);
+      assert.deepEqual(await unnamed(), []);
+      assert.match(await page.textContent('#result-sr'), /^Ergebnis: d20: \d+$/, 'das Ergebnis wird Screenreadern angesagt');
+      await page.click('#dlg-result', { position: { x: 15, y: 15 } });
+    });
+
+    await test('Tastatur: sichtbare Fokus-Rahmen auf Tippflächen, Buttons und Dock', async () => {
+      await page.evaluate(() => document.activeElement?.blur());
+      const seen = [];
+      for (let presses = 0; presses < 60 && seen.length < 28; presses++) {
+        await page.keyboard.press('Tab');
+        const focus = await page.evaluate(() => {
+          const el = document.activeElement;
+          const cs = getComputedStyle(el);
+          return {
+            tag: el.tagName,
+            cls: `${el.tagName}.${el.className}`,
+            seat: el.closest('.field')?.dataset.seat ?? null,
+            style: cs.outlineStyle,
+            width: parseFloat(cs.outlineWidth),
+            matches: el.matches(':focus-visible'),
+          };
+        });
+        if (focus.tag === 'BODY') continue; // the page boundary between two rounds of Tab
+        assert.equal(focus.matches, true, `${focus.cls}: Tastaturfokus gilt als focus-visible`);
+        assert.ok(focus.style !== 'none' && focus.width >= 2, `${focus.cls}: kein sichtbarer Fokus-Rahmen (${focus.style} ${focus.width}px)`);
+        seen.push(focus);
+      }
+      // seat by seat: zone -, zone +, -5, name, counters, +5; the menu dock comes last
+      // The counter chips of a field (visible here: player 1 is the monarch) are a stop of their own.
+      const withoutChips = seen.filter((f) => !f.cls.includes('chips'));
+      assert.equal(seen.length - withoutChips.length, 1, 'der Chips-Button von Spieler 1 ist ein eigener Tab-Stopp');
+      ['zone-minus', 'zone-plus', 'btn5-minus', 'name', 'toggle', 'btn5-plus'].forEach((expected, i) => {
+        assert.ok(withoutChips[i].cls.includes(expected), `Tab-Stopp ${i + 1} sollte ${expected} sein, ist aber ${withoutChips[i].cls}`);
+      });
+      assert.deepEqual([...new Set(seen.slice(0, 24).map((f) => f.seat))], ['0', '1', '2', '3']);
+      assert.ok(seen.slice(0, 26).some((f) => f.cls.includes('dock-btn')), 'Menü-Button ist per Tab erreichbar');
+      await shot(page, 'fokus');
+    });
+
+    await test('Tastatur-Bedienung ohne Maus: Enter öffnet das Menü, Esc schließt es, der Fokus kehrt zurück', async () => {
+      await page.locator('#btn-menu').focus();
+      await page.keyboard.press('Enter');
+      assert.equal(await page.isVisible('#dlg-menu'), true);
+      assert.equal(await page.evaluate(() => document.activeElement.closest('dialog')?.id), 'dlg-menu', 'Fokus liegt im Dialog');
+      await page.keyboard.press('Escape');
+      assert.equal(await page.isHidden('#dlg-menu'), true);
+      assert.equal(await page.evaluate(() => document.activeElement.id), 'btn-menu', 'Fokus kehrt zum Menü-Button zurück');
+    });
+    await noProblems(problems);
+    await context.close();
+  });
+
   await group('Sichere Bereiche (Notch, Gestenleiste)', async () => {
     const { context, page, problems } = await openApp(browser, server.url);
     await startGame(page, 4);
@@ -1391,6 +1540,62 @@ try {
     await context.setOffline(false);
     await noProblems(problems);
     await context.close();
+  });
+
+  await group('PWA: Hosting in einem Unterordner (z. B. GitHub Pages unter /Repository/mtg-counter/)', async () => {
+    const site = await mkdtemp(join(tmpdir(), 'mtg-subpath-'));
+    const appDir = join(site, 'MTG-Counter', 'mtg-counter');
+    await mkdir(appDir, { recursive: true });
+    await cp(APP_ROOT, appDir, { recursive: true, filter: (src) => !/[\\/](tests|scripts|\.git|node_modules)([\\/]|$)/.test(src) });
+    const hosted = await startServer({ root: site });
+    const base = `${hosted.url}MTG-Counter/mtg-counter/`;
+    const { context, page, problems } = await openApp(browser, base);
+
+    await test('alle Dateien laden mit relativen Pfaden (kein 404) und das Spiel startet', async () => {
+      await startGame(page, 4);
+      await field(page, 0).locator('.zone-minus').tap();
+      assert.equal(await lifeOf(page, 0), 39);
+      assert.deepEqual(problems, []);
+    });
+
+    await test('Service Worker und Cache gelten für den Unterordner, nicht für die ganze Domain', async () => {
+      const scope = await page.evaluate(async () => (await navigator.serviceWorker.ready).scope);
+      assert.equal(scope, base);
+      await waitFor(() => page.evaluate(async () => (await navigator.serviceWorker.ready).active?.state === 'activated'));
+      await waitFor(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller)));
+      const urls = await page.evaluate(async () => (await (await caches.open((await caches.keys())[0])).keys()).map((r) => new URL(r.url).pathname));
+      assert.ok(urls.includes('/MTG-Counter/mtg-counter/'));
+      assert.ok(urls.includes('/MTG-Counter/mtg-counter/js/game.js'));
+      assert.ok(urls.every((u) => u.startsWith('/MTG-Counter/mtg-counter/')), 'nichts außerhalb des Ordners im Cache');
+    });
+
+    await test('Manifest: start_url, scope und Icons zeigen in den Unterordner und laden', async () => {
+      const result = await page.evaluate(async () => {
+        const link = document.querySelector('link[rel=manifest]').href;
+        const manifest = await (await fetch(link)).json();
+        const icons = await Promise.all(manifest.icons.map(async (i) => (await fetch(new URL(i.src, link))).status));
+        return { link, start: new URL(manifest.start_url, link).href, scope: new URL(manifest.scope, link).href, icons };
+      });
+      assert.equal(result.start, base);
+      assert.equal(result.scope, base);
+      assert.ok(result.icons.every((status) => status === 200));
+      const cdp = await context.newCDPSession(page);
+      const { installabilityErrors } = await cdp.send('Page.getInstallabilityErrors');
+      assert.deepEqual(installabilityErrors, []);
+    });
+
+    await test('Offline-Neuladen funktioniert auch im Unterordner', async () => {
+      await sleep(300);
+      await context.setOffline(true);
+      await page.reload();
+      await page.waitForSelector('#game:not([hidden]) .field');
+      assert.equal(await lifeOf(page, 0), 39);
+      await context.setOffline(false);
+    });
+    await noProblems(problems);
+    await context.close();
+    await hosted.close();
+    await rm(site, { recursive: true, force: true });
   });
 
   await group('PWA: Update räumt alte Caches auf', async () => {

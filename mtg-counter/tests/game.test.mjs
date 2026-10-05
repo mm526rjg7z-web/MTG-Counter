@@ -277,6 +277,13 @@ test('setName trims, limits the length and falls back to the default', () => {
   assert.equal(setName(g, 99, 'x'), g);
 });
 
+test('setName never cuts an emoji in half', () => {
+  const g = setName(game(), 0, '\u{1F600}'.repeat(20)); // 20 emoji = 40 UTF-16 units
+  const name = g.players[0].name;
+  assert.equal(Array.from(name).length, 16);
+  assert.equal(name.isWellFormed(), true, 'no lone surrogate at the end');
+});
+
 test('setColor swaps colours so they stay unique', () => {
   let g = game();
   const [a, b] = [g.players[0].color, g.players[1].color];
