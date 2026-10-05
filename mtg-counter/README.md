@@ -41,10 +41,11 @@ Bedienbarkeit geht vor Funktionsumfang.
 - Der Spielstand wird laufend im `localStorage` gespeichert und beim Öffnen wiederhergestellt.
 - Bildschirm bleibt während des Spiels an (Screen Wake Lock API, abschaltbar, mit Hinweis statt Fehler, wenn nicht unterstützt).
 - Kurzes haptisches Feedback (`navigator.vibrate`), abschaltbar.
+- Anzeige-Diagnose (Startbildschirm unten, Hilfe): Tipp-Test und gemessene Bildschirmwerte, falls auf einem Gerät Tippflächen neben den Buttons sitzen.
 
 **Bedienung ohne Fehlgriffe**
 - Kein Zoomen, Scrollen, Textauswählen oder Kontextmenü auf dem Spielfeld, kein Pull-to-Refresh. Mehrere Finger gleichzeitig auf verschiedenen Feldern funktionieren unabhängig.
-- Safe-Area-Insets (Notch, Gestenleiste) werden berücksichtigt. Zahlen sind tabellarisch gesetzt, nichts springt. `prefers-reduced-motion` wird beachtet. Tastatur und Screenreader: `aria-label`s und sichtbare Fokus-Rahmen.
+- Notch und Gestenleiste: Auf dem iPhone startet die Seite unter der Statusleiste, die Safe-Area-Insets werden dort berücksichtigt, wo der Browser welche meldet. Zahlen sind tabellarisch gesetzt, nichts springt. `prefers-reduced-motion` wird beachtet. Tastatur und Screenreader: `aria-label`s und sichtbare Fokus-Rahmen.
 
 ## Lokal starten
 
@@ -113,7 +114,7 @@ Der Service Worker liefert Dateien aus dem Cache. Damit ein Update ankommt, muss
 node scripts/update-cache-version.mjs     # nach jeder Änderung an einer App-Datei, dann committen und veröffentlichen
 ```
 
-Vergisst man das, schlägt `npm test` fehl. Beim nächsten Start installiert der Browser den neuen Service Worker im Hintergrund, löscht die alten Caches und liefert danach die neue Version aus. Eine geöffnete App läuft bis zum Neustart mit dem alten Stand, also einmal komplett schließen und neu öffnen.
+Vergisst man das, schlägt `npm test` fehl. Beim nächsten Start installiert der Browser den neuen Service Worker im Hintergrund und löscht die alten Caches. Ab Version 1.0.1 lädt sich die laufende App danach **einmal selbst neu** (der Spielstand wird vorher gespeichert). Beim Zurückkehren in die App wird höchstens alle 5 Minuten nach einer neuen Version gesucht, damit auch eine tagelang offene Home-Bildschirm-App aktuell wird. Eine App mit einer älteren Version hat diese Automatik noch nicht: einmal komplett schließen (im App-Wechsler nach oben wischen) und neu öffnen. Die Version steht im Startbildschirm unten und unter *Hilfe / Über*.
 
 ## Auf dem Handy installieren
 
@@ -121,9 +122,26 @@ Vergisst man das, schlägt `npm test` fehl. Beim nächsten Start installiert der
 
 **iPhone/iPad (Safari)**: Seite öffnen, Teilen-Symbol → *Zum Home-Bildschirm* → *Hinzufügen*. Ab iOS 16.4 geht das auch in anderen Browsern (Chrome, Edge, Firefox) über deren Teilen-Menü.
 
-Hinweise zu iOS: `navigator.vibrate` wird von iOS nicht unterstützt (die App erklärt das in den Einstellungen). Der Screen Wake Lock funktionierte in Home-Bildschirm-Apps wegen eines WebKit-Fehlers erst ab **iOS 18.4** ([WebKit-Bug 254545](https://bugs.webkit.org/show_bug.cgi?id=254545)). Auf älteren Versionen die automatische Sperre in den iOS-Einstellungen auf „Nie“ stellen.
+Hinweise zu iOS: Die Statusleiste ist deckend (`black`), die Seite beginnt darunter. `navigator.vibrate` wird von iOS nicht unterstützt (die App erklärt das in den Einstellungen). Der Screen Wake Lock funktionierte in Home-Bildschirm-Apps wegen eines WebKit-Fehlers erst ab **iOS 18.4** ([WebKit-Bug 254545](https://bugs.webkit.org/show_bug.cgi?id=254545)). Auf älteren Versionen die automatische Sperre in den iOS-Einstellungen auf „Nie“ stellen.
 
 Browser-Voraussetzungen: Container Queries, `color-mix()` und das `<dialog>`-Element, also etwa Chrome/Edge 111, Safari/iOS 16.2, Firefox 113 oder neuer. In älteren Browsern zeigt die App einen Hinweis statt eines kaputten Layouts.
+
+### iPhone: Tippflächen verschoben oder Anzeige abgeschnitten?
+
+**Symptom.** Als Home-Bildschirm-App sitzen die Tippflächen neben den gezeichneten Buttons, etwa so, dass man ins Leere unter einen Button tippen muss.
+
+**Ursache (wahrscheinlich).** Bis Version 1.0.0 setzte die App `viewport-fit=cover` zusammen mit einer transparenten Statusleiste (`apple-mobile-web-app-status-bar-style: black-translucent`). In dieser Kombination zeichnet iOS 26 die Seite ab dem oberen Bildschirmrand, bemisst das Fenster aber um die Höhe der Statusleiste zu kurz: `innerHeight`, `100dvh` und `visualViewport.height` sind dann um genau diese Höhe zu klein ([WebKit-Bug 301108](https://bugs.webkit.org/show_bug.cgi?id=301108)). Das passt zu dem Symptom: Die Tippflächen liegen dann etwa um die Höhe der Statusleiste (47 bis 59 px) unter den gezeichneten Buttons. Der Tipp-Test in der Anzeige-Diagnose misst diesen Abstand. Viele Projekte haben das gelöst, indem sie eine deckende Statusleiste wählten, sodass die Seite darunter beginnt (Beispiele: [band-app/band#681](https://github.com/band-app/band/pull/681), [coder/xum#5656](https://github.com/coder/xum/pull/5656)). Laut [Apples Meta-Tag-Dokumentation](https://developer.apple.com/library/archive/documentation/AppleApplications/Reference/SafariHTMLRef/Articles/MetaTags.html) beginnt der Inhalt bei `default` und `black` unter der Statusleiste, bei `black-translucent` füllt er den ganzen Bildschirm. **Ob genau das die verschobenen Tippflächen verursacht hat, ließ sich ohne iPhone nicht nachmessen.** Die Tests laufen in Chromium.
+
+**Was Version 1.0.1 ändert.**
+- Die Statusleiste ist deckend (`black`) und `viewport-fit=cover` entfällt: Die Seite beginnt unter der Statusleiste und bleibt innerhalb der Safe Area. Damit entfällt die Kombination, in der iOS 26 das Fenster falsch bemisst.
+- Bleibt der sichtbare Bereich nach dem Schließen der Tastatur oder nach einer Drehung gegen die Seite verschoben (`visualViewport.offsetTop` ungleich 0, in iOS 26.0 gemeldet: [Apple Developer Forums](https://developer.apple.com/forums/thread/800154)), scrollt die App die Seite zurück zum Ursprung. Solange ein Textfeld Fokus hat oder gezoomt ist, greift sie nicht ein.
+- Die **Anzeige-Diagnose** (Startbildschirm unten, oder *Hilfe / Über*) enthält einen **Tipp-Test** (auf die Mitte eines Kreuzes tippen: die App meldet, wie weit daneben sie den Tipp erkennt), zeigt gemessene Werte (Fenster, sichtbarer Bereich, Versatz, Safe Area, Version, Cache) und hat die Schaltfläche *Neu ausrichten*.
+- Updates kommen selbst an (siehe oben).
+
+**So kommt die neue Version aufs iPhone.**
+1. App komplett schließen (im App-Wechsler nach oben wischen) und neu öffnen, bei Bedarf ein zweites Mal. Unten im Startbildschirm muss *Version 1.0.1* (oder neuer) stehen.
+2. Die Angabe zur Statusleiste liest iOS **nur beim Hinzufügen zum Home-Bildschirm**, ein bestehendes Symbol behält die alte (so berichten es z. B. die Projekte oben). Wenn es danach noch nicht stimmt: Symbol vom Home-Bildschirm löschen, die Seite in Safari neu laden und über Teilen → *Zum Home-Bildschirm* erneut hinzufügen. Der Spielstand liegt im Speicher der App und geht dabei verloren.
+3. Besteht das Problem weiter: *Anzeige-Diagnose* öffnen, *Neu ausrichten* tippen und einen Screenshot der Werte mit der iOS-Version weitergeben.
 
 ## Tests
 
@@ -140,7 +158,7 @@ npm run test:e2e            # echter Browser, Mobil-Viewport, Touch-Eingabe
 ```
 
 Die Unit-Tests führen auch den Service Worker in einer Sandbox mit simuliertem Cache aus (Installieren, Aufräumen alter Caches, Cache-First, Offline-Fallback).
-Die E2E-Tests prüfen unter anderem: alle Layouts für 2 bis 6 Spieler auf vier Handy-Größen (Drehung, lückenloses Raster, Dock verdeckt nichts, Tippziele ≥ 48 px, Panel ohne Überlappung), Tippen, Halten (Einzel- und 5er-Schritte), Mehrfinger-Bedienung, Commander-Schaden 21, Gift, Marker, Rückgängig, Neuladen, Offline-Start, Service-Worker-Update samt Aufräumen, Vibration und Wake Lock (per Mock), reduzierte Bewegung, sowie in jeder Gruppe, dass die Konsole leer bleibt.
+Die E2E-Tests prüfen unter anderem: alle Layouts für 2 bis 6 Spieler auf vier Handy-Größen (Drehung, lückenloses Raster, Dock verdeckt nichts, Tippziele ≥ 48 px, Panel ohne Überlappung), Tippen, Halten (Einzel- und 5er-Schritte), Mehrfinger-Bedienung, Commander-Schaden 21, Gift, Marker, Rückgängig, Neuladen, Offline-Start, Service-Worker-Update samt Aufräumen und genau einem Neuladen mit erhaltenem Spielstand, Ausrichtung des sichtbaren Bereichs (Versatz, Tastatur, Zoom) und Anzeige-Diagnose, Vibration und Wake Lock (per Mock), reduzierte Bewegung, sowie in jeder Gruppe, dass die Konsole leer bleibt.
 
 ## Aufbau
 
@@ -165,6 +183,8 @@ mtg-counter/
 │   ├── dialogs.js        Menü, Historie, Spielereditor, Bestätigung, Hilfe
 │   ├── tools.js          Würfel, Münze, Startspieler
 │   ├── setup.js          Start-Bildschirm und Einstellungen
+│   ├── viewport.js       hält den sichtbaren Bereich ausgerichtet (iOS), misst Fenster und Safe Area
+│   ├── diagnostics.js    Dialog „Anzeige-Diagnose“
 │   ├── haptics.js, wakelock.js, dom.js, version.js
 ├── scripts/              serve.mjs (Server), make-icons.mjs, update-cache-version.mjs
 └── tests/                *.test.mjs (Unit), e2e.mjs (Playwright)
@@ -172,11 +192,11 @@ mtg-counter/
 
 **Datenmodell.** Ein Spiel besteht aus `players[]` (`id`, `name`, `color`, `life`, `poison`, `energy`, `experience`, `cmd[quelle]` = Commander-Schaden von jedem Gegner), `monarch` und `initiative` (je eine Spieler-ID oder `null`) und `history[]`. Ein Eintrag der Historie hat die Form `{ id, t, kind, pid, src, from, to }` und ist zugleich der Rückgängig-Stapel: Rückgängig setzt den Wert auf `from` zurück. Änderungen am selben Wert innerhalb von 1,5 Sekunden werden zu einem Eintrag zusammengefasst (daraus entsteht auch die „−7“-Anzeige), eine Gesamtänderung von 0 hinterlässt keinen Eintrag. „Ausgeschieden“ wird nicht gespeichert, sondern aus den Werten abgeleitet. Alle Funktionen in `game.js` geben einen neuen Zustand zurück und sind ohne Browser testbar.
 
-**Layout und Drehung.** `layout.js` beschreibt je Spielerzahl ein Raster aus Zellen mit Drehwinkel. Jede Zelle enthält einen Rahmen, der um diesen Winkel gedreht wird. Der Rahmen ist ein eigener Container (Container Queries), alle Größen darin (Lebenszahl, Buttons, Panel) leiten sich von seiner tatsächlichen Breite und Höhe ab, egal wie er gedreht ist. Die oberen 30 px jedes Rahmens bleiben frei von Bedienelementen, weil das Dock in der Bildschirmmitte in die Felder hineinragt. Bei drei Reihen liegt die Mitte in den seitlich gedrehten Feldern, dort ist das Dock senkrecht. Für Rahmen unter 190 px Höhe (Seitenfelder bei 5 bis 6 Spielern auf schmalen Handys) und für schmale, niedrige Rahmen gibt es verdichtete Stufen.
+**Layout und Drehung.** `layout.js` beschreibt je Spielerzahl ein Raster aus Zellen mit Drehwinkel. Jede Zelle enthält einen Rahmen, der um diesen Winkel gedreht wird. Der Rahmen ist ein eigener Container (Container Queries), alle Größen darin (Lebenszahl, Buttons, Panel) leiten sich von seiner tatsächlichen Breite und Höhe ab, egal wie er gedreht ist. Die oberen 30 px jedes Rahmens bleiben frei von Bedienelementen, weil das Dock in der Bildschirmmitte in die Felder hineinragt. Bei drei Reihen liegt die Mitte in den seitlich gedrehten Feldern, dort ist das Dock senkrecht. Für Rahmen unter 190 px Höhe, für 210 bis 275 px breite Rahmen bis 230 px Höhe (Seitenfelder bei 5 bis 6 Spielern: auf iPhones im Home-Bildschirm-Modus sind das 251 × 195 px, weil Statusleiste und Gestenleiste Platz brauchen) und für schmale, niedrige Rahmen gibt es verdichtete Stufen. Die E2E-Tests prüfen alle Spielerzahlen auf den Bildschirmgrößen der aktuellen iPhones (375 × 647 bis 440 × 863 px).
 
 ## Bekannte Grenzen
 
-- **Echtes Gerät nicht getestet.** Alle Tests liefen in Chromium (Playwright, Touch- und Mobil-Emulation). Vibration und Wake Lock sind nur per Mock geprüft, iOS Safari und der Home-Bildschirm-Modus gar nicht. Die Safe-Area-Insets (Notch, Gestenleiste) sind per CSS-Variablen simuliert.
+- **Echtes Gerät nicht getestet.** Alle Tests liefen in Chromium (Playwright, Touch- und Mobil-Emulation). Vibration und Wake Lock sind nur per Mock geprüft, iOS Safari und der Home-Bildschirm-Modus gar nicht. Die Safe-Area-Insets (Notch, Gestenleiste) sind per CSS-Variablen simuliert, der Versatz des sichtbaren Bereichs und `navigator.standalone` per Attrappe. Dass Version 1.0.1 die verschobenen Tippflächen auf einem echten iPhone behebt, ist aus Berichten und Dokumentation abgeleitet, nicht gemessen.
 - Commander-Schaden wird **je gegnerischem Spieler** gezählt, nicht je Commander. Bei Partner-Commandern zählt der Schaden beider Commander desselben Gegners zusammen.
 - 5 und 6 Spieler brauchen Platz: Bei Handys unter etwa 390 px Breite sind Tippflächen im Zähler-Panel teils nur 38 px statt 48 px groß, weil die Felder dann nur noch rund 180 px hoch sind. Bei 2 bis 4 Spielern gibt es das Problem nicht.
 - Das Zähler-Panel ersetzt beim Öffnen die Lebenszahl des Feldes. Zum Ändern des Lebens zuerst schließen.

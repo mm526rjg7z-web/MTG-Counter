@@ -106,6 +106,18 @@ button { cursor: pointer; }
 .btn-ghost { background: transparent; }
 .btn-xl { width: 100%; min-height: 64px; border-radius: 18px; font-size: 20px; font-weight: 800; }
 
+/* Text link that is still a real button: big enough to hit, underlined so it reads as a link. */
+.link-btn {
+  min-height: var(--tap);
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .icon-btn {
   display: grid;
   place-items: center;
@@ -255,6 +267,7 @@ button { cursor: pointer; }
 .switch input:disabled ~ i, .switch input:disabled ~ span { opacity: 0.45; }
 
 .setup-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+.setup-foot { margin: 0; color: var(--muted); font-size: 14px; text-align: center; }
 
 /* ===== Board ===== */
 .board {
@@ -684,8 +697,14 @@ button { cursor: pointer; }
 /* ===== Compact frames =====
    The sideways fields of 5 and 6 players are only half the screen width high: about 178 px on a
    360 px wide phone. Below 190 px the layout gets denser: -5/+5 move under the -/+ symbols at the
-   sides, the bottom bar keeps one row (name + counters) and the panel uses three 48 px rows. */
-@container frame (max-height: 190px) {
+   sides, the bottom bar keeps one row (name + counters) and the panel uses three 48 px rows.
+   The same goes for frames up to 230 px high that are 210-275 px wide: the regular tiers need more
+   height there (two-row bar: the life number would only get 57 px; chips of 48 px wrap into two rows
+   below 272 px). A home-screen app on an iPhone 14 or 15 gets 390-393 x 759-763 px, which makes the
+   sideways fields 251 x 195 px; an iPhone Air (420 x 819 px) gets 271 x 208 px. Narrower frames (the
+   top and bottom fields of 6 players on a 375 px phone are 186 x 220 px) keep the regular tiers,
+   because the compact one reserves 60 px at each side of the number. */
+@container frame ((max-height: 190px) or ((min-width: 210px) and (max-width: 275px) and (max-height: 230px))) {
   .fc { --band: 28px; --bar: 54px; --sym-col: 60px; }
 
   .bar { display: contents; }
@@ -699,7 +718,7 @@ button { cursor: pointer; }
   .sym { top: calc(var(--band) + 4px); transform: none; }
   .chips { left: 62px; right: 62px; }
 
-  .panel { padding: var(--band) 8px 0; }
+  .panel { padding: var(--band) 6px 0; } /* five chips side by side need every pixel */
   .panel-body { gap: 2px; }
   .panel-bar { height: 48px; padding: 0; }
   .sel-row { flex-wrap: nowrap; gap: 2px; }
@@ -867,6 +886,26 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.66); }
 .swatch input:checked + span { border-color: #fff; box-shadow: inset 0 0 0 2px #000; }
 .swatch input:checked + span .icon { opacity: 1; }
 .swatch input:focus-visible + span { outline: 3px solid #fff; outline-offset: 2px; }
+
+.tap-target {
+  position: relative;
+  width: 132px;
+  height: 132px;
+  margin: 14px auto 8px;
+  border: 2px solid var(--accent);
+  border-radius: 18px;
+  background:
+    linear-gradient(var(--accent), var(--accent)) center / 2px 72% no-repeat,
+    linear-gradient(var(--accent), var(--accent)) center / 72% 2px no-repeat,
+    var(--surface-2);
+  touch-action: none;
+}
+.tap-result { min-height: 3.9em; margin-top: 0; text-align: center; }
+.tap-result.is-ok { color: #8ee08e; }
+.tap-result.is-off { color: var(--danger); }
+.diag { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 14px; margin: 12px 0 0; font-variant-numeric: tabular-nums; }
+.diag dt { color: var(--muted); font-size: 14px; }
+.diag dd { margin: 0; font-weight: 700; text-align: right; overflow-wrap: anywhere; }
 
 .prose h3 { margin: 18px 0 6px; color: var(--accent); font-size: 16px; }
 .prose h3:first-child { margin-top: 6px; }

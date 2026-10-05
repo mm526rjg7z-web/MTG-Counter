@@ -7,7 +7,7 @@
 // generated block is out of date, so a forgotten update cannot reach users unnoticed.)
 
 const CACHE_PREFIX = 'mtg-counter-';
-const CACHE_VERSION = '94610eb8ae';
+const CACHE_VERSION = 'b14a759122';
 const CACHE_NAME = `${CACHE_PREFIX}${CACHE_VERSION}`;
 const ASSETS = [
   './',
@@ -16,6 +16,7 @@ const ASSETS = [
   './app.js',
   './manifest.webmanifest',
   './js/board.js',
+  './js/diagnostics.js',
   './js/dialogs.js',
   './js/dom.js',
   './js/field.js',
@@ -30,6 +31,7 @@ const ASSETS = [
   './js/storage.js',
   './js/tools.js',
   './js/version.js',
+  './js/viewport.js',
   './js/wakelock.js',
   './icons/apple-touch-icon.png',
   './icons/favicon-32.png',

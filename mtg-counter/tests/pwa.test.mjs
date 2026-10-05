@@ -237,11 +237,22 @@ test('index.html wires up manifest, icons, theme colour and the iOS home screen 
   assert.match(html, /<link rel="manifest" href="manifest\.webmanifest">/);
   assert.match(html, /<link rel="apple-touch-icon" href="icons\/apple-touch-icon\.png">/);
   assert.match(html, /<meta name="theme-color" content="#[0-9a-f]{6}">/i);
-  assert.match(html, /viewport-fit=cover/);
   assert.match(html, /apple-mobile-web-app-capable" content="yes"/);
   const apple = pngInfo(await readFile(join(root, 'icons/apple-touch-icon.png')));
   assert.deepEqual([apple.width, apple.height, apple.colorType], [180, 180, 2]);
   assert.match(html, /lang="de"/);
+});
+
+// Regression guard for taps landing beside the buttons in iOS home-screen apps: with viewport-fit=cover
+// and a translucent status bar iOS 26 draws from the screen edge but sizes the window one status bar
+// short (WebKit bug 301108). The opaque bar and the default viewport keep paint and touch areas aligned.
+test('index.html keeps the page below an opaque iOS status bar (no viewport-fit=cover, no translucent bar)', async () => {
+  const html = await read('index.html');
+  const viewport = html.match(/<meta name="viewport" content="([^"]*)">/)?.[1] ?? '';
+  assert.match(viewport, /width=device-width/);
+  assert.doesNotMatch(viewport, /viewport-fit/);
+  assert.match(html, /<meta name="apple-mobile-web-app-status-bar-style" content="black">/);
+  assert.doesNotMatch(html, /status-bar-style" content="black-translucent"/);
 });
 
 test('the version shown in the help matches the format x.y.z', () => {

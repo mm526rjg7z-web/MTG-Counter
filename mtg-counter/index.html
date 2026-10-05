@@ -2,7 +2,10 @@
 <html lang="de">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <!-- No viewport-fit=cover on purpose: together with a translucent status bar, iOS 26 draws a home-screen
+       app from the screen edge but sizes the window one status bar short (WebKit bug 301108). The page
+       stays inside the safe area instead (see README, "iPhone: Tippflächen verschoben"). -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <title>MTG Lebenspunkte-Zähler</title>
   <meta name="description" content="Lebenspunkte-Zähler für Magic: The Gathering, optimiert für Commander (EDH). Läuft offline.">
   <meta name="theme-color" content="#0b0b10">
@@ -15,7 +18,9 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="MTG Zähler">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <!-- Opaque status bar: the page starts below it. iOS reads this tag only when the app is added to the
+       Home Screen, so an existing icon keeps its old setting until it is removed and added again. -->
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
 
   <link rel="stylesheet" href="styles.css">
   <script type="module" src="app.js"></script>
@@ -120,6 +125,8 @@
           <button id="btn-start" class="btn btn-primary btn-xl" type="button">Spiel starten</button>
           <button id="btn-setup-cancel" class="btn btn-ghost" type="button" hidden>Zurück zum Spiel</button>
         </div>
+
+        <p class="setup-foot"><span id="setup-version"></span> · <button id="btn-diag-setup" class="link-btn" type="button">Anzeige-Diagnose</button></p>
       </div>
     </section>
   </main>
@@ -253,6 +260,29 @@
         <h3>Über</h3>
         <p>Die App funktioniert ohne Internet. Der Spielstand wird nur auf diesem Gerät gespeichert und nirgendwohin gesendet.</p>
         <p class="hint" id="about-version"></p>
+        <p><button id="btn-diag-help" class="btn" type="button">Anzeige-Diagnose</button></p>
+        <p class="hint">Tippflächen verschoben oder Anzeige abgeschnitten? Die Diagnose zeigt gemessene Werte des Geräts.</p>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Diagnostics: numbers reported by the device, for reports about a shifted layout -->
+  <dialog id="dlg-diag" aria-labelledby="diag-title">
+    <div class="dlg">
+      <header class="dlg-head">
+        <h2 id="diag-title">Anzeige-Diagnose</h2>
+        <button class="icon-btn" type="button" data-close aria-label="Diagnose schließen"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-close"/></svg></button>
+      </header>
+      <div class="dlg-body">
+        <p class="hint">Sitzen Tippflächen neben den Buttons? Tippe mit dem Finger genau auf die Mitte des Kreuzes.</p>
+        <div id="diag-tap" class="tap-target" aria-hidden="true"></div>
+        <p id="diag-tap-result" class="hint tap-result" role="status">Noch nicht getippt.</p>
+        <p class="hint">Gemessene Werte dieses Geräts. Bei Problemen hilft ein Screenshot dieser Seite.</p>
+        <dl id="diag-list" class="diag"></dl>
+        <p id="diag-done" class="hint" role="status" hidden>Neu ausgerichtet. Die Werte wurden neu gemessen.</p>
+      </div>
+      <div class="dlg-actions">
+        <button id="diag-realign" class="btn btn-primary" type="button">Neu ausrichten</button>
       </div>
     </div>
   </dialog>

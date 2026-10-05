@@ -2,6 +2,7 @@
 // Game rules live in js/game.js (pure, tested in Node); this file only connects them to the UI.
 
 import { createBoard } from './js/board.js';
+import { initDiagnostics } from './js/diagnostics.js';
 import { initDialogs } from './js/dialogs.js';
 import { summarizeEntry } from './js/format.js';
 import { adjust, createGame, isEliminated, lastEntry, resetGame, setColor, setName, toggleMarker, undo } from './js/game.js';
@@ -10,10 +11,12 @@ import { getLayout } from './js/layout.js';
 import { initSetup } from './js/setup.js';
 import { createSaver, getStorage, loadSaved } from './js/storage.js';
 import { initTools } from './js/tools.js';
+import { watchViewport } from './js/viewport.js';
 import { createWakeLock } from './js/wakelock.js';
 
 const $ = (id) => document.getElementById(id);
 const TOAST_MS = 2800;
+const UPDATE_CHECK_MS = 5 * 60 * 1000; // at most one look for a new version per 5 minutes
 
 function browserIsSupported() {
   return typeof CSS !== 'undefined'
@@ -183,6 +186,14 @@ function main() {
   $('btn-menu').addEventListener('click', () => dialogs.openMenu());
 
   // ---- device behaviour -----------------------------------------------------------------------
+  // Keeps iOS from leaving the visual viewport shifted against the page (taps beside the buttons).
+  const diagnostics = initDiagnostics({ viewport: watchViewport() });
+  $('btn-diag-setup').addEventListener('click', () => diagnostics.open());
+  $('btn-diag-help').addEventListener('click', () => {
+    $('dlg-help').close();
+    diagnostics.open();
+  });
+
   // iOS Safari reports pinch gestures separately from touch-action.
   for (const type of ['gesturestart', 'gesturechange', 'gestureend']) {
     document.addEventListener(type, (event) => event.preventDefault());
@@ -199,17 +210,47 @@ function main() {
   if (model.game) showGame();
   else setup.open(model.settings, { inGame: false });
 
-  registerServiceWorker();
+  registerServiceWorker({ beforeReload: () => saver.flush() });
 }
 
 // Offline support. Service workers need HTTPS (localhost counts as secure).
-function registerServiceWorker() {
+// A new version installs in the background and takes over at once (see sw.js). The page then reloads
+// one time, so a running app never keeps old files; beforeReload() saves the game first.
+function registerServiceWorker({ beforeReload }) {
   if (!('serviceWorker' in navigator)) return;
   const secure = location.protocol === 'https:' || ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
   if (!secure) return;
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').catch((error) => {
+
+  // A page that started without a service worker gets one controllerchange for the first install:
+  // it already runs the newest files. Every later controllerchange is an update.
+  let controlled = Boolean(navigator.serviceWorker.controller);
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!controlled) {
+      controlled = true;
+      return;
+    }
+    if (reloading) return;
+    reloading = true;
+    beforeReload();
+    location.reload();
+  });
+
+  window.addEventListener('load', async () => {
+    let registration;
+    try {
+      registration = await navigator.serviceWorker.register('sw.js');
+    } catch (error) {
       console.warn('Service Worker konnte nicht registriert werden:', error);
+      return;
+    }
+    // A home-screen app can stay open for days, so look for a new version whenever it comes back.
+    let lastCheck = Date.now();
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible' || navigator.onLine === false) return;
+      if (Date.now() - lastCheck < UPDATE_CHECK_MS) return;
+      lastCheck = Date.now();
+      registration.update().catch(() => {});
     });
   });
 }

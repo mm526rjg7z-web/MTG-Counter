@@ -4,6 +4,7 @@ import { h, icon } from './dom.js';
 import { START_LIFE_MAX } from './game.js';
 import { getLayout } from './layout.js';
 import { DEFAULT_COLOR_ORDER, getColor } from './palette.js';
+import { APP_VERSION } from './version.js';
 
 const PRESETS = [20, 30, 40];
 
@@ -86,6 +87,7 @@ export function initSetup({ vibrateSupported, wakeLockSupported, onStart, onCanc
   });
   cancelBtn.addEventListener('click', onCancel);
 
+  root.querySelector('#setup-version').textContent = `Version ${APP_VERSION}`;
   root.querySelector('#vibrate-hint').hidden = vibrateSupported;
   vibrate.disabled = !vibrateSupported;
   root.querySelector('#awake-hint').hidden = wakeLockSupported;

@@ -16,6 +16,7 @@ import { APP_ROOT, startServer } from '../scripts/serve.mjs';
 import { buildServiceWorker } from '../scripts/update-cache-version.mjs';
 import { BURST_MS } from '../js/game.js';
 import { getLayout } from '../js/layout.js';
+import { APP_VERSION } from '../js/version.js';
 
 const require = createRequire(import.meta.url);
 let chromium;
@@ -231,7 +232,10 @@ try {
   // layouts that are tight (the sideways fields of 5 and 6 players get only half the screen width as height).
   const LAYOUT_RUNS = [
     ...[2, 3, 4, 5, 6].map((players) => ({ players, viewport: VIEWPORT })),
-    ...[{ width: 360, height: 800 }, { width: 375, height: 667 }, { width: 412, height: 915 }]
+    // A home-screen app gets the screen minus the status bar and the home indicator: 393x759 on an iPhone 15
+    // (852 pt high), 420x819 on an iPhone Air (912 pt high). The sideways fields of 5 and 6 players are
+    // 251x195 and 271x208 px there, where the regular and the compact tier meet (see styles.css).
+    ...[{ width: 360, height: 800 }, { width: 375, height: 667 }, { width: 412, height: 915 }, { width: 393, height: 759 }, { width: 420, height: 819 }]
       .flatMap((viewport) => [4, 5, 6].map((players) => ({ players, viewport }))),
   ];
   for (const { players, viewport } of LAYOUT_RUNS) {
@@ -395,6 +399,93 @@ try {
           await shot(page, `layout-${players}${isDefault ? '' : `-${viewport.width}x${viewport.height}`}-panels-${tab === 0 ? 'commander' : 'zaehler'}`);
         }
       });
+      await noProblems(problems);
+      await context.close();
+    });
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // A home-screen app on an iPhone gets the screen minus the status bar (top) and the home indicator
+  // (bottom). The three-row layouts are tight there, and the regular and the compact tier of styles.css
+  // meet in this range. Every current iPhone size is checked for every player count, once with closed
+  // and once with open counter panels (both tabs). The sizes are CSS pixels of the screen minus 20-59 px
+  // status bar and 0-34 px home indicator.
+  const IPHONE_APP_VIEWPORTS = [
+    ['iPhone SE (3. Generation)', 375, 647], ['iPhone 13 mini', 375, 728], ['iPhone 14', 390, 763], ['iPhone 15', 393, 759],
+    ['iPhone 16 Pro', 402, 781], ['iPhone Air', 420, 819], ['iPhone 15 Plus', 430, 839], ['iPhone 16 Pro Max', 440, 863],
+  ];
+  // Runs in the page: returns a list of problems with the current layout (empty = fine).
+  const measureLayout = () => {
+    const box = (el) => {
+      const b = el.getBoundingClientRect();
+      return { x: b.x, y: b.y, w: b.width, h: b.height };
+    };
+    const overlap = (a, b, margin = 0) => a.x < b.x + b.w - margin && b.x < a.x + a.w - margin && a.y < b.y + b.h - margin && b.y < a.y + a.h - margin;
+    const dock = box(document.querySelector('.dock'));
+    const found = [];
+    for (const f of document.querySelectorAll('.field')) {
+      const seat = Number(f.dataset.seat);
+      const frame = { w: f.querySelector('.frame').offsetWidth, h: f.querySelector('.frame').offsetHeight };
+      const where = `Sitz ${seat} (Rahmen ${frame.w}x${frame.h})`;
+      const rect = box(f);
+      const panel = f.querySelector('.panel');
+      if (!panel) {
+        const range = document.createRange();
+        range.selectNodeContents(f.querySelector('.life'));
+        const life = box(range);
+        const fontSize = parseFloat(getComputedStyle(f.querySelector('.life')).fontSize);
+        const controls = [...f.querySelectorAll('.btn5, .name, .toggle')].map(box);
+        if (fontSize < 60) found.push(`${where}: Lebenszahl nur ${fontSize.toFixed(0)} px`);
+        if (life.x < rect.x - 1 || life.x + life.w > rect.x + rect.w + 1 || life.y < rect.y - 1 || life.y + life.h > rect.y + rect.h + 1) found.push(`${where}: Zahl ragt aus dem Feld`);
+        if (overlap(dock, life)) found.push(`${where}: Dock überdeckt die Zahl`);
+        controls.forEach((a, i) => {
+          if (a.w < 47.5 || a.h < 47.5) found.push(`${where}: Bedienelement ${a.w.toFixed(1)}x${a.h.toFixed(1)}`);
+          if (overlap(dock, a)) found.push(`${where}: Dock überdeckt Bedienelement ${i}`);
+          if (overlap(a, life, 1)) found.push(`${where}: Bedienelement ${i} überlappt die Zahl`);
+          controls.forEach((b, j) => {
+            if (i < j && overlap(a, b, 1)) found.push(`${where}: Bedienelemente ${i} und ${j} überlappen`);
+          });
+        });
+      } else {
+        const bounds = box(panel);
+        if (panel.scrollHeight > panel.clientHeight + 1 || panel.scrollWidth > panel.clientWidth + 1) found.push(`${where}: Panel läuft über`);
+        // physical limit, see the dense and compact tiers: chips may shrink to 38 px in one direction
+        const dense = frame.w < 260 && frame.h <= 262;
+        const tiny = frame.h <= 190 && frame.w < 250;
+        const buttons = [...panel.querySelectorAll('button:not([hidden])')]
+          .filter((b) => b.getClientRects().length > 0 && !b.closest('[hidden]'))
+          .map((b) => ({ ...box(b), chip: b.classList.contains('sel') }));
+        buttons.forEach((a, i) => {
+          if (a.x < bounds.x - 1 || a.y < bounds.y - 1 || a.x + a.w > bounds.x + bounds.w + 1 || a.y + a.h > bounds.y + bounds.h + 1) found.push(`${where}: Panel-Button ${i} ragt aus dem Panel`);
+          const minimum = a.chip && (dense || tiny) ? 38 : 47.5;
+          if (Math.min(a.w, a.h) < minimum || Math.max(a.w, a.h) < 47.5) found.push(`${where}: Panel-Button ${i} nur ${a.w.toFixed(1)}x${a.h.toFixed(1)}`);
+          if (overlap(dock, a)) found.push(`${where}: Dock überdeckt Panel-Button ${i}`);
+          buttons.forEach((b, j) => {
+            if (i < j && overlap(a, b, 1.5)) found.push(`${where}: Panel-Buttons ${i} und ${j} überlappen`);
+          });
+        });
+      }
+    }
+    return found;
+  };
+  for (const players of [2, 3, 4, 5, 6]) {
+    await group(`Layout mit ${players} Spielern auf den iPhone-Größen im Home-Bildschirm-Modus`, async () => {
+      const { context, page, problems } = await openApp(browser, server.url);
+      await startGame(page, players);
+      for (const [name, width, height] of IPHONE_APP_VIEWPORTS) {
+        await test(`${name} (${width}x${height}): Zahlen, Bedienelemente und Zähler-Panels passen, nichts überlappt das Dock`, async () => {
+          await page.setViewportSize({ width, height });
+          await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+          const found = await page.evaluate(measureLayout);
+          await page.evaluate(() => document.querySelectorAll('.field .toggle').forEach((button) => button.click()));
+          for (const tab of [0, 1]) {
+            await page.evaluate((index) => document.querySelectorAll('.field').forEach((f) => f.querySelectorAll('.panel-bar .tab:not(.tab-close)')[index].click()), tab);
+            found.push(...(await page.evaluate(measureLayout)).map((message) => `Panel ${tab === 0 ? 'Commander' : 'Zähler'}: ${message}`));
+          }
+          await page.evaluate(() => document.querySelectorAll('.tab-close').forEach((button) => button.click()));
+          assert.deepEqual(found, []);
+        });
+      }
       await noProblems(problems);
       await context.close();
     });
@@ -1380,6 +1471,7 @@ try {
         ['#dlg-player', async () => { await field(page, 0).locator('.name').tap(); }],
         ['#dlg-confirm', async () => { await page.click('#btn-menu'); await page.click('[data-action=new]'); }],
         ['#dlg-help', async () => { await page.click('#btn-menu'); await page.click('[data-action=help]'); }],
+        ['#dlg-diag', async () => { await page.click('#btn-menu'); await page.click('[data-action=help]'); await page.click('#btn-diag-help'); }],
       ];
       for (const [selector, open] of surfaces) {
         await open();
@@ -1465,6 +1557,213 @@ try {
       assert.ok(result.some((f) => f.field.y < 1), 'das obere Feld reicht bis zum oberen Rand');
       assert.ok(result.some((f) => f.field.y + f.field.h > f.vh - 1), 'das untere Feld reicht bis zum unteren Rand');
       await shot(page, 'sichere-bereiche');
+    });
+    await noProblems(problems);
+    await context.close();
+  });
+
+  // ------------------------------------------------------------------------------------------
+  // iOS home-screen apps can end up with a visual viewport that is displaced against the page, so taps
+  // land beside the buttons. Chromium does not have that bug: visualViewport and navigator.standalone are
+  // replaced by fakes the test controls, and the app has to react as it should on a real iPhone.
+  const FAKE_IOS = () => {
+    const fake = new EventTarget();
+    // width and height follow the window (at this point the page is not laid out yet) until a test sets one
+    let heightOverride = null;
+    Object.defineProperties(fake, {
+      width: { get: () => innerWidth },
+      height: { get: () => heightOverride ?? innerHeight, set: (value) => { heightOverride = value; } },
+    });
+    Object.assign(fake, { offsetTop: 0, offsetLeft: 0, scale: 1, pageTop: 0, pageLeft: 0 });
+    Object.defineProperty(window, 'visualViewport', { value: fake, configurable: true });
+    window.__vv = fake;
+    window.__scrolls = [];
+    const scrollTo = window.scrollTo.bind(window);
+    window.scrollTo = (...args) => { window.__scrolls.push(args); return scrollTo(...args); };
+    Object.defineProperty(navigator, 'standalone', { value: true, configurable: true });
+  };
+  const shiftViewport = (page, patch) => page.evaluate((values) => {
+    Object.assign(window.__vv, values);
+    window.__vv.dispatchEvent(new Event('resize'));
+  }, patch);
+  const scrollCalls = (page) => page.evaluate(() => window.__scrolls.length);
+  const resetScrolls = (page) => page.evaluate(() => { window.__scrolls.length = 0; });
+  const settle = () => sleep(1200); // the app checks again after 0, 120, 400 and 1000 ms
+
+  await group('iPhone: Sichtbereich bleibt ausgerichtet, Anzeige-Diagnose', async () => {
+    const { context, page, problems } = await openApp(browser, server.url, { init: FAKE_IOS });
+    await page.waitForSelector('#setup:not([hidden])');
+    const diagRows = () => page.evaluate(() => Object.fromEntries([...document.querySelectorAll('#diag-list dt')].map((dt) => [dt.textContent, dt.nextElementSibling.textContent])));
+
+    await test('Meta-Angaben: deckende Statusleiste, kein viewport-fit=cover', async () => {
+      assert.doesNotMatch(await page.getAttribute('meta[name=viewport]', 'content'), /viewport-fit/);
+      assert.equal(await page.getAttribute('meta[name=apple-mobile-web-app-status-bar-style]', 'content'), 'black');
+      assert.equal(await page.getAttribute('meta[name=apple-mobile-web-app-capable]', 'content'), 'yes');
+    });
+
+    await test('Start-Screen: jedes Bedienelement liegt dort, wo es gezeichnet ist (nichts davor), der Start-Button ist ohne Scrollen sichtbar', async () => {
+      const result = await page.evaluate(() => {
+        const controls = [...document.querySelectorAll('#setup button, #setup label, #setup input[type=number]')]
+          .filter((el) => el.getClientRects().length > 0 && !el.closest('[hidden]'));
+        const blocked = controls.flatMap((el) => {
+          const r = el.getBoundingClientRect();
+          if (r.top < 0 || r.bottom > innerHeight) return []; // needs scrolling first
+          const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          const label = el.closest('label');
+          return el.contains(hit) || (label && label.contains(hit)) ? [] : [`${el.tagName.toLowerCase()}#${el.id || el.className}`];
+        });
+        const start = document.getElementById('btn-start').getBoundingClientRect();
+        return { blocked, checked: controls.length, startBottom: start.bottom, startTop: start.top, vh: innerHeight };
+      });
+      assert.deepEqual(result.blocked, []);
+      assert.ok(result.checked >= 12, `nur ${result.checked} Bedienelemente geprüft`);
+      assert.ok(result.startTop >= 0 && result.startBottom <= result.vh, `Start-Button liegt nicht komplett im Bild (${result.startTop}–${result.startBottom} von ${result.vh})`);
+    });
+
+    await test('solange alles ausgerichtet ist, wird nichts gescrollt', async () => {
+      await settle();
+      assert.equal(await scrollCalls(page), 0);
+    });
+
+    await test('verschobener Sichtbereich (Versatz oben 59 px): die Seite wird auf den Ursprung zurückgescrollt', async () => {
+      await shiftViewport(page, { offsetTop: 59 });
+      await waitFor(() => scrollCalls(page), { message: 'scrollTo wurde aufgerufen' });
+      assert.deepEqual(await page.evaluate(() => window.__scrolls[0]), [0, 0]);
+      await shiftViewport(page, { offsetTop: 0 });
+      await settle();
+    });
+
+    await test('auch seitlicher Versatz, Drehung und Rückkehr in die App lösen die Prüfung aus', async () => {
+      const triggers = [
+        () => shiftViewport(page, { offsetLeft: 12 }),
+        () => page.evaluate(() => { window.__vv.offsetTop = 47; window.dispatchEvent(new Event('orientationchange')); }),
+        () => page.evaluate(() => { window.__vv.offsetTop = 47; document.dispatchEvent(new Event('visibilitychange')); }),
+      ];
+      for (const trigger of triggers) {
+        await page.evaluate(() => Object.assign(window.__vv, { offsetTop: 0, offsetLeft: 0 }));
+        await settle();
+        await resetScrolls(page);
+        await trigger();
+        await waitFor(() => scrollCalls(page), { message: 'scrollTo nach dem Auslöser' });
+      }
+      await page.evaluate(() => Object.assign(window.__vv, { offsetTop: 0, offsetLeft: 0 }));
+      await settle();
+    });
+
+    await test('Anzeige-Diagnose vom Start-Screen: Modus, Maße, Versatz, Version, Cache', async () => {
+      await waitFor(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller)), { message: 'Service Worker aktiv' });
+      await page.click('#btn-diag-setup');
+      await page.waitForSelector('#dlg-diag[open]');
+      const rows = await waitFor(async () => {
+        const r = await diagRows();
+        return r['App-Version'] ? r : null;
+      }, { message: 'Diagnose gefüllt' });
+      assert.equal(rows.Modus, 'Home-Bildschirm');
+      assert.equal(rows.Fenster, '390 × 844');
+      assert.equal(rows.Sichtbereich, '390 × 844');
+      assert.equal(rows['Versatz oben / links'], '0 / 0');
+      assert.equal(rows.Zoom, '1');
+      assert.equal(rows.Bildschirm, await page.evaluate(() => `${screen.width} × ${screen.height}`), 'zeigt, was der Browser meldet');
+      assert.equal(rows['Safe Area o / r / u / l'], '0 / 0 / 0 / 0');
+      assert.equal(rows['Scroll x / y'], '0 / 0');
+      assert.equal(rows['App-Version'], APP_VERSION);
+      assert.match(rows['Offline-Cache'], /^[0-9a-f]{10}$/);
+      assert.equal(rows['Service Worker'], 'aktiv');
+      assert.equal(await page.isVisible('#diag-done'), false);
+      await shot(page, 'diagnose');
+    });
+
+    await test('Tipp-Test: Mitte passt, ein Tipp daneben nennt Richtung und Abstand, ein Tipp weit weg zählt nicht, beim Öffnen ist er zurückgesetzt', async () => {
+      const result = () => page.textContent('#diag-tap-result');
+      const resultClass = (name) => page.locator('#diag-tap-result').evaluate((el, n) => el.classList.contains(n), name);
+      assert.equal(await result(), 'Noch nicht getippt.');
+      const [cx, cy] = await centerOf(page.locator('#diag-tap'));
+      await page.touchscreen.tap(cx, cy);
+      assert.match(await result(), /Das passt zur Zeichnung/);
+      assert.equal(await resultClass('is-ok'), true);
+      await page.touchscreen.tap(cx, cy - 50); // the area is shifted if a tap in the centre ends up 50 px higher
+      assert.match(await result(), /y −50 px, also 50 px über der Mitte/);
+      assert.equal(await resultClass('is-off'), true);
+      assert.equal(await resultClass('is-ok'), false);
+      await page.touchscreen.tap(cx + 40, cy + 45);
+      assert.match(await result(), /45 px unter und 40 px rechts von der Mitte/);
+      const kept = await result();
+      await page.click('#diag-realign'); // far from the crosshair: not a tap-test tap
+      assert.equal(await result(), kept);
+      await shot(page, 'diagnose-tipptest');
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('#dlg-diag', { state: 'hidden' });
+      await page.click('#btn-diag-setup');
+      await page.waitForSelector('#dlg-diag[open]');
+      assert.equal(await result(), 'Noch nicht getippt.');
+      assert.equal(await resultClass('is-off'), false);
+    });
+
+    await test('„Neu ausrichten“: scrollt zurück, richtet neu aus, misst neu; die Seite dahinter bleibt intakt', async () => {
+      await shiftViewport(page, { offsetTop: 59 });
+      await settle();
+      await resetScrolls(page);
+      await page.click('#diag-realign');
+      assert.ok((await scrollCalls(page)) >= 1, 'scrollTo wurde aufgerufen');
+      assert.equal(await page.isVisible('#diag-done'), true);
+      await waitFor(async () => (await diagRows())['Versatz oben / links'] === '59 / 0', { message: 'neu gemessen' });
+      assert.notEqual(await page.evaluate(() => getComputedStyle(document.getElementById('app')).display), 'none', 'App-Container wurde wiederhergestellt');
+      assert.equal(await page.isVisible('#setup'), true);
+      await shiftViewport(page, { offsetTop: 0 });
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('#dlg-diag', { state: 'hidden' });
+    });
+
+    await test('Start-Screen: die Versionsangabe steht im Fuß', async () => {
+      assert.equal(await page.textContent('#setup-version'), `Version ${APP_VERSION}`);
+    });
+
+    await startGame(page, 2);
+
+    await test('aus der Hilfe im Spiel erreichbar (die Hilfe schließt sich), danach bleibt das Spielfeld bedienbar', async () => {
+      await page.click('#btn-menu');
+      await page.click('[data-action=help]');
+      assert.equal(await page.isVisible('#btn-diag-help'), true);
+      await page.click('#btn-diag-help');
+      await page.waitForSelector('#dlg-diag[open]');
+      assert.equal(await page.isVisible('#dlg-help'), false);
+      await page.click('#diag-realign');
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('#dlg-diag', { state: 'hidden' });
+      await field(page, 0).locator('.zone-plus').tap();
+      assert.equal(await lifeOf(page, 0), 41);
+    });
+
+    await test('Texteingabe: solange das Namensfeld Fokus hat, wird nichts verschoben, danach wird zurückgesetzt', async () => {
+      await resetScrolls(page);
+      await field(page, 1).locator('.name').tap();
+      await page.waitForSelector('#dlg-player[open]');
+      assert.equal(await page.evaluate(() => document.activeElement.id), 'player-name');
+      await shiftViewport(page, { offsetTop: 59 });
+      await settle();
+      assert.equal(await scrollCalls(page), 0, 'während der Eingabe unberührt');
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('#dlg-player', { state: 'hidden' });
+      await waitFor(() => scrollCalls(page), { message: 'nach der Eingabe wird zurückgesetzt' });
+      await shiftViewport(page, { offsetTop: 0 });
+      await settle();
+    });
+
+    await test('Tastatur sichtbar (Sichtbereich viel niedriger als das Fenster): kein Eingriff', async () => {
+      await resetScrolls(page);
+      await shiftViewport(page, { offsetTop: 59, height: 844 - 320 });
+      await settle();
+      assert.equal(await scrollCalls(page), 0);
+      await shiftViewport(page, { offsetTop: 0, height: 844 });
+      await settle();
+    });
+
+    await test('gezoomt (Pinch): kein Eingriff', async () => {
+      await resetScrolls(page);
+      await shiftViewport(page, { offsetTop: 120, scale: 2 });
+      await settle();
+      assert.equal(await scrollCalls(page), 0);
+      await shiftViewport(page, { offsetTop: 0, scale: 1 });
     });
     await noProblems(problems);
     await context.close();
@@ -1598,7 +1897,7 @@ try {
     await rm(site, { recursive: true, force: true });
   });
 
-  await group('PWA: Update räumt alte Caches auf', async () => {
+  await group('PWA: Update räumt alte Caches auf, lädt die App einmal neu und behält den Spielstand', async () => {
     const copy = await mkdtemp(join(tmpdir(), 'mtg-sw-update-'));
     await cp(APP_ROOT, copy, { recursive: true, filter: (src) => !/[\\/](tests|scripts|\.git|node_modules)([\\/]|$)/.test(src) });
     const regenerate = async () => {
@@ -1607,37 +1906,92 @@ try {
     };
     await regenerate();
     const second = await startServer({ root: copy });
-    const { context, page, problems } = await openApp(browser, second.url);
+    // counts how often the page looks for a new service worker version
+    const COUNT_UPDATE_CHECKS = () => {
+      window.__updateChecks = 0;
+      const update = ServiceWorkerRegistration.prototype.update;
+      ServiceWorkerRegistration.prototype.update = function countedUpdate(...args) {
+        window.__updateChecks++;
+        return update.apply(this, args);
+      };
+    };
+    const { context, page, problems } = await openApp(browser, second.url, { init: COUNT_UPDATE_CHECKS });
+    let loads = 0; // page loads after the first one
+    page.on('load', () => { loads++; });
 
     const cacheNames = () => page.evaluate(() => caches.keys());
     let firstName;
 
-    await test('erste Version wird installiert', async () => {
+    await test('erste Version wird installiert, die Seite lädt dabei nicht neu', async () => {
       await page.evaluate(() => navigator.serviceWorker.ready);
       await waitFor(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller)));
+      await sleep(800);
+      assert.equal(loads, 0, 'die Erstinstallation darf die laufende Seite nicht neu laden');
       const names = await cacheNames();
       assert.equal(names.length, 1);
       firstName = names[0];
     });
 
-    await test('nach einer neuen Version existiert nur noch der neue Cache und die neue Version läuft', async () => {
+    await test('nach einer neuen Version: alter Cache gelöscht, die App lädt genau einmal neu, der Spielstand bleibt, die neue Version läuft', async () => {
+      await startGame(page, 3);
+      await field(page, 0).locator('.zone-minus').tap();
+      assert.equal(await lifeOf(page, 0), 39);
       await page.evaluate(async () => { await (await caches.open('fremde-app-cache')).put('/x', new Response('x')); });
       await writeFile(join(copy, 'js/version.js'), "export const APP_VERSION = '9.9.9';\n");
       await regenerate();
       await page.evaluate(async () => { await (await navigator.serviceWorker.getRegistration()).update(); });
-      await waitFor(async () => {
-        const names = await cacheNames();
-        return names.length === 2 && !names.includes(firstName);
-      }, { timeout: 8000, message: 'alter Cache gelöscht, neuer angelegt' });
+      await waitFor(() => loads >= 1, { timeout: 8000, message: 'die App lädt sich nach dem Update neu' });
+      await page.waitForSelector('#game:not([hidden]) .field');
+      assert.equal(await lifeOf(page, 0), 39, 'der Spielstand überlebt das automatische Neuladen');
+      await sleep(1500);
+      assert.equal(loads, 1, 'genau ein Neuladen, keine Schleife');
       const names = await cacheNames();
+      assert.equal(names.length, 2);
+      assert.ok(!names.includes(firstName), 'der alte Cache ist gelöscht');
       assert.ok(names.includes('fremde-app-cache'), 'fremde Caches bleiben unangetastet');
       assert.ok(names.some((n) => /^mtg-counter-[0-9a-f]{10}$/.test(n) && n !== firstName));
-      await page.reload();
-      await page.waitForSelector('#setup:not([hidden])');
-      await startGame(page, 2);
       await page.click('#btn-menu');
       await page.click('[data-action=help]');
       assert.match(await page.textContent('#about-version'), /9\.9\.9/);
+      await page.keyboard.press('Escape');
+    });
+
+    await test('nach dem Neuladen stößt eine weitere Version wieder genau ein Neuladen an', async () => {
+      await writeFile(join(copy, 'js/version.js'), "export const APP_VERSION = '9.9.10';\n");
+      await regenerate();
+      await page.evaluate(async () => { await (await navigator.serviceWorker.getRegistration()).update(); });
+      await waitFor(() => loads >= 2, { timeout: 8000, message: 'zweites Update lädt neu' });
+      await page.waitForSelector('#game:not([hidden]) .field');
+      await sleep(1000);
+      assert.equal(loads, 2);
+      await page.click('#btn-menu');
+      await page.click('[data-action=help]');
+      assert.match(await page.textContent('#about-version'), /9\.9\.10/);
+      await page.keyboard.press('Escape');
+    });
+
+    await test('Rückkehr in die App: höchstens alle 5 Minuten wird nach einer neuen Version gesucht, offline nie', async () => {
+      const checks = () => page.evaluate(() => window.__updateChecks);
+      const comeBack = () => page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+      await waitFor(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller)));
+      const before = await checks();
+      await comeBack();
+      await sleep(100);
+      assert.equal(await checks(), before, 'zu früh: keine Suche');
+      await page.evaluate(() => {
+        const realNow = Date.now;
+        Date.now = () => realNow() + 6 * 60 * 1000;
+      });
+      await context.setOffline(true);
+      await comeBack();
+      await sleep(100);
+      assert.equal(await checks(), before, 'offline: keine Suche');
+      await context.setOffline(false);
+      await comeBack();
+      await waitFor(async () => (await checks()) === before + 1, { message: 'Suche nach der Rückkehr' });
+      await comeBack();
+      await sleep(100);
+      assert.equal(await checks(), before + 1, 'gleich danach nicht noch einmal');
     });
     await noProblems(problems);
     await context.close();
