@@ -43,12 +43,13 @@ export function isStandalone(win = window) {
 
 // ---- measuring ----------------------------------------------------------------------------------
 
-// Reads the safe-area insets: env() cannot be read directly, so a hidden probe takes them as padding.
+// Reads the safe-area insets the layout works with (--safe-* in styles.css, which are env(safe-area-inset-*)):
+// env() cannot be read directly, so a hidden probe takes them as padding.
 function readInsets(doc) {
   const probe = doc.createElement('div');
   probe.setAttribute('aria-hidden', 'true');
   probe.style.cssText = 'position:absolute;visibility:hidden;pointer-events:none;width:0;height:0;'
-    + 'padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)';
+    + 'padding:var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left)';
   doc.body.append(probe);
   const style = doc.defaultView.getComputedStyle(probe);
   const insets = [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft].map((v) => Math.round(parseFloat(v) || 0));
@@ -60,6 +61,7 @@ export function measureViewport(win = window, doc = document) {
   const vv = win.visualViewport ?? null;
   return {
     standalone: isStandalone(win),
+    iosApp: win.navigator?.standalone === true,
     innerWidth: win.innerWidth,
     innerHeight: win.innerHeight,
     visualWidth: vv ? vv.width : null,
@@ -76,6 +78,14 @@ export function measureViewport(win = window, doc = document) {
   };
 }
 
+// True for an iOS home-screen app whose page is drawn under the status bar. That is what an icon added with
+// the translucent bar (before 1.0.1) looks like once viewport-fit=cover is set: iOS then shifts the touch
+// areas (WebKit bug 301108). With the opaque bar the web view starts below it and the top inset is 0.
+// Only iOS: Android reports no insets for an app below the status bar, and `navigator.standalone` is iOS-only.
+export function statusBarOverlapsPage(m) {
+  return m.iosApp === true && m.insets[0] > 0;
+}
+
 const num = (value) => (value === null || value === undefined ? '–' : String(Math.round(value * 100) / 100));
 const size = (w, h) => (w === null || h === null ? '–' : `${num(w)} × ${num(h)}`);
 
@@ -90,6 +100,7 @@ export function describeViewport(m) {
     ['Zoom', num(m.scale)],
     ['Bildschirm', size(m.screenWidth, m.screenHeight)],
     ['Safe Area o / r / u / l', `${top} / ${right} / ${bottom} / ${left}`],
+    ['Statusleiste', !m.iosApp ? '–' : statusBarOverlapsPage(m) ? 'verdeckt die Seite (altes Symbol)' : 'deckend, Seite beginnt darunter'],
     ['Scroll x / y', `${num(m.scrollX)} / ${num(m.scrollY)}`],
     ['Body oben', num(m.bodyTop)],
   ];

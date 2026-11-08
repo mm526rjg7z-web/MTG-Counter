@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { KEYBOARD_MIN_PX, TAP_TOLERANCE_PX, describeTap, describeViewport, isEditable, isStandalone, shouldRealign, watchViewport } from '../js/viewport.js';
+import { KEYBOARD_MIN_PX, TAP_TOLERANCE_PX, describeTap, describeViewport, isEditable, isStandalone, shouldRealign, statusBarOverlapsPage, watchViewport } from '../js/viewport.js';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -66,6 +66,26 @@ test('describeViewport lists the measured numbers in German rows', () => {
   assert.equal(rows.get('Safe Area o / r / u / l'), '47 / 0 / 34 / 0');
   assert.equal(rows.get('Scroll x / y'), '0 / 0');
   assert.equal(rows.get('Body oben'), '-59');
+});
+
+test('statusBarOverlapsPage: only an iOS home-screen app whose page reaches under the status bar', () => {
+  const app = { iosApp: true, insets: [0, 0, 34, 0] };
+  assert.equal(statusBarOverlapsPage(app), false, 'opaque bar: the page starts below it, no top inset');
+  assert.equal(statusBarOverlapsPage({ ...app, insets: [59, 0, 34, 0] }), true, 'translucent bar from an old icon');
+  assert.equal(statusBarOverlapsPage({ ...app, insets: [47, 0, 34, 0] }), true);
+  assert.equal(statusBarOverlapsPage({ iosApp: false, insets: [59, 0, 34, 0] }), false, 'Safari tab, Android, desktop');
+  assert.equal(statusBarOverlapsPage({ insets: [59, 0, 34, 0] }), false, 'no iOS flag at all');
+});
+
+test('describeViewport says whether the status bar covers the page (iOS home-screen apps only)', () => {
+  const base = {
+    standalone: true, iosApp: true, innerWidth: 390, innerHeight: 793, visualWidth: 390, visualHeight: 793,
+    offsetTop: 0, offsetLeft: 0, scale: 1, screenWidth: 390, screenHeight: 852, scrollX: 0, scrollY: 0, bodyTop: 0,
+  };
+  const row = (m) => new Map(describeViewport(m)).get('Statusleiste');
+  assert.equal(row({ ...base, insets: [0, 0, 34, 0] }), 'deckend, Seite beginnt darunter');
+  assert.equal(row({ ...base, insets: [59, 0, 34, 0] }), 'verdeckt die Seite (altes Symbol)');
+  assert.equal(row({ ...base, iosApp: false, insets: [0, 0, 0, 0] }), '–');
 });
 
 test('describeViewport copes with a browser without visualViewport', () => {

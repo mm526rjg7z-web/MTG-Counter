@@ -405,14 +405,18 @@ try {
   }
 
   // ------------------------------------------------------------------------------------------
-  // A home-screen app on an iPhone gets the screen minus the status bar (top) and the home indicator
-  // (bottom). The three-row layouts are tight there, and the regular and the compact tier of styles.css
-  // meet in this range. Every current iPhone size is checked for every player count, once with closed
-  // and once with open counter panels (both tabs). The sizes are CSS pixels of the screen minus 20-59 px
-  // status bar and 0-34 px home indicator.
+  // A home-screen app on an iPhone is laid out below the opaque status bar down to the bottom edge of the
+  // screen. viewport-fit=cover reports the home indicator as the bottom inset (34 px on every Face ID model),
+  // and styles.css pads the bottom row with it plus a share for the rounded display corners (--corner).
+  // Chromium reports no insets, so they are simulated through the CSS variables. The three-row layouts are
+  // tight there, and the regular and the compact tier of styles.css meet in this range. Every current iPhone
+  // size is checked for every player count, with and without the inset, with closed and with open counter
+  // panels (both tabs). Sizes are CSS pixels of the screen; the page is the screen minus the status bar.
   const IPHONE_APP_VIEWPORTS = [
-    ['iPhone SE (3. Generation)', 375, 647], ['iPhone 13 mini', 375, 728], ['iPhone 14', 390, 763], ['iPhone 15', 393, 759],
-    ['iPhone 16 Pro', 402, 781], ['iPhone Air', 420, 819], ['iPhone 15 Plus', 430, 839], ['iPhone 16 Pro Max', 440, 863],
+    // name, screen width, screen height, status bar, home indicator
+    ['iPhone SE (3. Generation)', 375, 667, 20, 0], ['iPhone 13 mini', 375, 812, 50, 34], ['iPhone 14', 390, 844, 47, 34],
+    ['iPhone 15', 393, 852, 59, 34], ['iPhone 16 Pro', 402, 874, 59, 34], ['iPhone Air', 420, 912, 59, 34],
+    ['iPhone 15 Plus', 430, 932, 59, 34], ['iPhone 16 Pro Max', 440, 956, 59, 34],
   ];
   // Runs in the page: returns a list of problems with the current layout (empty = fine).
   const measureLayout = () => {
@@ -429,7 +433,7 @@ try {
       const where = `Sitz ${seat} (Rahmen ${frame.w}x${frame.h})`;
       const rect = box(f);
       const panel = f.querySelector('.panel');
-      if (!panel) {
+      if (panel.hidden) {
         const range = document.createRange();
         range.selectNodeContents(f.querySelector('.life'));
         const life = box(range);
@@ -472,24 +476,214 @@ try {
     await group(`Layout mit ${players} Spielern auf den iPhone-Größen im Home-Bildschirm-Modus`, async () => {
       const { context, page, problems } = await openApp(browser, server.url);
       await startGame(page, players);
-      for (const [name, width, height] of IPHONE_APP_VIEWPORTS) {
-        await test(`${name} (${width}x${height}): Zahlen, Bedienelemente und Zähler-Panels passen, nichts überlappt das Dock`, async () => {
-          await page.setViewportSize({ width, height });
-          await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-          const found = await page.evaluate(measureLayout);
-          await page.evaluate(() => document.querySelectorAll('.field .toggle').forEach((button) => button.click()));
-          for (const tab of [0, 1]) {
-            await page.evaluate((index) => document.querySelectorAll('.field').forEach((f) => f.querySelectorAll('.panel-bar .tab:not(.tab-close)')[index].click()), tab);
-            found.push(...(await page.evaluate(measureLayout)).map((message) => `Panel ${tab === 0 ? 'Commander' : 'Zähler'}: ${message}`));
-          }
-          await page.evaluate(() => document.querySelectorAll('.tab-close').forEach((button) => button.click()));
-          assert.deepEqual(found, []);
-        });
+      for (const [name, width, screenHeight, statusBar, home] of IPHONE_APP_VIEWPORTS) {
+        const height = screenHeight - statusBar;
+        for (const withInset of [true, false]) {
+          if (withInset && home === 0) continue; // no home indicator: identical to the run without inset
+          const label = `${name} (${width}x${height}${withInset ? `, Safe Area unten ${home} px` : ', ohne Safe Area'})`;
+          await test(`${label}: Zahlen, Bedienelemente und Zähler-Panels passen, nichts überlappt das Dock`, async () => {
+            await page.setViewportSize({ width, height });
+            await page.evaluate((px) => document.documentElement.style.setProperty('--safe-bottom', `${px}px`), withInset ? home : 0);
+            await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+            const found = await page.evaluate(measureLayout);
+            await page.evaluate(() => document.querySelectorAll('.field .toggle').forEach((button) => button.click()));
+            for (const tab of [0, 1]) {
+              await page.evaluate((index) => document.querySelectorAll('.field').forEach((f) => f.querySelectorAll('.panel-bar .tab:not(.tab-close)')[index].click()), tab);
+              found.push(...(await page.evaluate(measureLayout)).map((message) => `Panel ${tab === 0 ? 'Commander' : 'Zähler'}: ${message}`));
+            }
+            await page.evaluate(() => document.querySelectorAll('.tab-close').forEach((button) => button.click()));
+            assert.deepEqual(found, []);
+          });
+        }
       }
       await noProblems(problems);
       await context.close();
     });
   }
+
+  // ------------------------------------------------------------------------------------------
+  // Rounded display corners, home indicator and notch. Chromium (like Android) reports no safe-area insets,
+  // so an iPhone is simulated through the CSS variables (--safe-*) that styles.css derives everything from.
+  await group('iPhone: Abstand der unteren Buttonreihe zu abgerundeten Ecken, Gestenleiste und Notch', async () => {
+    const { context, page, problems } = await openApp(browser, server.url, { viewport: { width: 393, height: 793 } });
+    const setInsets = (insets) => page.evaluate((values) => {
+      const root = document.documentElement.style;
+      for (const [name, px] of Object.entries(values)) root.setProperty(`--safe-${name}`, `${px}px`);
+    }, insets);
+    // Gaps between the buttons of the bottom row (-5, name, counters, +5) and the screen edges, per field.
+    const bottomRow = () => page.evaluate(() => [...document.querySelectorAll('.field.edge-bottom')].map((f) => {
+      const buttons = [...f.querySelectorAll('.bar .btn5, .bar .name, .bar .toggle')].map((b) => b.getBoundingClientRect());
+      return {
+        seat: Number(f.dataset.seat),
+        left: f.classList.contains('edge-left'),
+        right: f.classList.contains('edge-right'),
+        bottomGap: innerHeight - Math.max(...buttons.map((b) => b.bottom)),
+        leftGap: Math.min(...buttons.map((b) => b.left)),
+        rightGap: innerWidth - Math.max(...buttons.map((b) => b.right)),
+      };
+    }));
+    const near = (actual, expected, message) => assert.ok(Math.abs(actual - expected) <= 0.6, `${message}: ${actual.toFixed(1)} statt ${expected}`);
+    // A button corner is inside the display if it lies within the circle of the corner (radius R).
+    const insideCorner = (x, y, radius, margin) => x >= radius || y >= radius || Math.hypot(radius - x, radius - y) <= radius - margin;
+
+    const freshGame = async (players) => {
+      await sleep(300); // the saver writes 120 ms after a change, also on reload: let it finish before clearing
+      await page.evaluate(() => { localStorage.clear(); });
+      await page.reload();
+      await startGame(page, players);
+    };
+
+    for (const players of [2, 3, 4, 5, 6]) {
+      await freshGame(players);
+
+      await test(`${players} Spieler, Android (keine Safe-Area): die untere Buttonreihe sitzt wie bisher 6 px über dem Rand und 8 px vom Seitenrand`, async () => {
+        await setInsets({ top: 0, right: 0, bottom: 0, left: 0 });
+        const rows = await bottomRow();
+        assert.ok(rows.length >= 1);
+        for (const row of rows) {
+          near(row.bottomGap, 6, `Sitz ${row.seat} unten`);
+          if (row.left) near(row.leftGap, 8, `Sitz ${row.seat} links`);
+          if (row.right) near(row.rightGap, 8, `Sitz ${row.seat} rechts`);
+        }
+      });
+
+      await test(`${players} Spieler, iPhone (Safe-Area unten 34 px): die Buttonreihe hält Abstand zur Gestenleiste und liegt außerhalb jeder Ecken-Rundung (bis Radius 62 px)`, async () => {
+        await setInsets({ top: 0, right: 0, bottom: 34, left: 0 });
+        const rows = await bottomRow();
+        // two or four players: 34 px safe area + 20 px for the corner + 6 px button padding;
+        // three rows (5-6 players) are too short for that: 34 + 6 px + 6 px
+        const bottom = players >= 5 ? 34 + 6.1 + 6 : 34 + 20.4 + 6;
+        for (const row of rows) {
+          assert.ok(row.bottomGap >= bottom - 0.6, `Sitz ${row.seat}: nur ${row.bottomGap.toFixed(1)} px über dem unteren Rand, erwartet ${bottom.toFixed(1)}`);
+          if (row.left) {
+            assert.ok(row.leftGap >= 20.4 - 0.6, `Sitz ${row.seat}: nur ${row.leftGap.toFixed(1)} px vom linken Rand`);
+            assert.ok(insideCorner(row.leftGap, row.bottomGap, 62, 6), `Sitz ${row.seat}: Button ragt in die linke untere Ecke`);
+          }
+          if (row.right) {
+            assert.ok(row.rightGap >= 20.4 - 0.6, `Sitz ${row.seat}: nur ${row.rightGap.toFixed(1)} px vom rechten Rand`);
+            assert.ok(insideCorner(row.rightGap, row.bottomGap, 62, 6), `Sitz ${row.seat}: Button ragt in die rechte untere Ecke`);
+          }
+        }
+      });
+
+      await test(`${players} Spieler, iPhone: mit geöffnetem Zähler-Panel gilt dasselbe für die Tab-Leiste unten`, async () => {
+        await setInsets({ top: 0, right: 0, bottom: 34, left: 0 });
+        await page.evaluate(() => document.querySelectorAll('.field.edge-bottom .toggle').forEach((b) => b.click()));
+        const tabs = await page.evaluate(() => [...document.querySelectorAll('.field.edge-bottom')].map((f) => {
+          const buttons = [...f.querySelectorAll('.panel-bar .tab')].map((b) => b.getBoundingClientRect());
+          return {
+            seat: Number(f.dataset.seat),
+            left: f.classList.contains('edge-left'),
+            right: f.classList.contains('edge-right'),
+            bottomGap: innerHeight - Math.max(...buttons.map((b) => b.bottom)),
+            leftGap: Math.min(...buttons.map((b) => b.left)),
+            rightGap: innerWidth - Math.max(...buttons.map((b) => b.right)),
+          };
+        }));
+        for (const row of tabs) {
+          assert.ok(row.bottomGap >= 34 + (players >= 5 ? 6.1 : 20.4) - 0.6, `Sitz ${row.seat}: Tab-Leiste nur ${row.bottomGap.toFixed(1)} px über dem Rand`);
+          if (row.left) assert.ok(insideCorner(row.leftGap, row.bottomGap, 62, 6), `Sitz ${row.seat}: Tab-Leiste ragt in die linke Ecke`);
+          if (row.right) assert.ok(insideCorner(row.rightGap, row.bottomGap, 62, 6), `Sitz ${row.seat}: Tab-Leiste ragt in die rechte Ecke`);
+        }
+        await page.evaluate(() => document.querySelectorAll('.tab-close').forEach((b) => b.click()));
+      });
+    }
+
+    await test('die obere Buttonreihe bleibt unverändert: unter der deckenden Statusleiste braucht sie keinen Abstand (Android und iPhone)', async () => {
+      await freshGame(2);
+      const topGap = () => page.evaluate(() => {
+        const f = document.querySelector('.field.edge-top');
+        const buttons = [...f.querySelectorAll('.bar .btn5, .bar .name, .bar .toggle')].map((b) => b.getBoundingClientRect());
+        return Math.min(...buttons.map((b) => b.top)) - f.getBoundingClientRect().top;
+      });
+      await setInsets({ top: 0, right: 0, bottom: 0, left: 0 });
+      near(await topGap(), 6, 'Android: oben');
+      await setInsets({ top: 0, right: 0, bottom: 34, left: 0 });
+      near(await topGap(), 6, 'iPhone mit Safe-Area unten: oben');
+    });
+
+    await test('Querformat (Notch links und rechts, Gestenleiste unten): Felder an den Seiten und die untere Reihe halten Abstand', async () => {
+      await page.setViewportSize({ width: 852, height: 393 });
+      await setInsets({ top: 0, right: 59, bottom: 21, left: 59 });
+      const result = await page.evaluate(() => [...document.querySelectorAll('.field')].map((f) => {
+        const r = f.querySelector('.frame').getBoundingClientRect();
+        return {
+          seat: Number(f.dataset.seat),
+          left: f.classList.contains('edge-left'), right: f.classList.contains('edge-right'), bottom: f.classList.contains('edge-bottom'),
+          leftGap: r.left, rightGap: innerWidth - r.right, bottomGap: innerHeight - r.bottom,
+        };
+      }));
+      assert.ok(result.length >= 2);
+      for (const f of result) {
+        if (f.left) assert.ok(f.leftGap >= 59 - 0.6, `Sitz ${f.seat}: Inhalt ${f.leftGap.toFixed(1)} px vom linken Rand (Notch 59 px)`);
+        if (f.right) assert.ok(f.rightGap >= 59 - 0.6, `Sitz ${f.seat}: Inhalt ${f.rightGap.toFixed(1)} px vom rechten Rand (Notch 59 px)`);
+        if (f.bottom) assert.ok(f.bottomGap >= 21 + 12.6 - 0.6, `Sitz ${f.seat}: Inhalt ${f.bottomGap.toFixed(1)} px über dem unteren Rand`);
+      }
+      await shot(page, 'iphone-querformat');
+    });
+    await noProblems(problems);
+    await context.close();
+  });
+
+  // An icon added before 1.0.1 still has the translucent status bar. With viewport-fit=cover iOS then draws the
+  // page under it (top inset > 0) and shifts the touch areas, so the app says how to fix it. Simulated here: the
+  // iOS flag `navigator.standalone` and a top inset from a stylesheet that gets one more rule on the way.
+  await group('iPhone: Hinweis bei einem alten Home-Bildschirm-Symbol (Statusleiste verdeckt die Seite)', async () => {
+    const launch = async ({ ios, topInset }) => {
+      const context = await browser.newContext({ viewport: { width: 393, height: 793 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true, locale: 'de-DE' });
+      if (ios) await context.addInitScript(() => Object.defineProperty(navigator, 'standalone', { value: true, configurable: true }));
+      await context.route('**/styles.css', async (route) => {
+        const response = await route.fetch();
+        await route.fulfill({ response, body: `${await response.text()}\n:root { --safe-top: ${topInset}px; }` });
+      });
+      const { page, problems } = await openApp(browser, server.url, { context });
+      await page.waitForSelector('#setup:not([hidden])');
+      return { context, page, problems };
+    };
+
+    await test('altes Symbol (iOS-App, Seite unter der Statusleiste): der Hinweis erscheint, nennt das Löschen und Neu-Hinzufügen und blockiert keine Taps', async () => {
+      const { context, page, problems } = await launch({ ios: true, topInset: 59 });
+      assert.equal(await page.isVisible('#icon-notice'), true);
+      const text = await page.textContent('#icon-notice');
+      assert.match(text, /löschen/);
+      assert.match(text, /Zum Home-Bildschirm/);
+      assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById('icon-notice')).pointerEvents), 'none');
+      await shot(page, 'iphone-altes-symbol');
+      await page.click('#btn-start');
+      await page.waitForSelector('#game:not([hidden]) .field');
+      assert.equal(await page.isVisible('#icon-notice'), true, 'der Hinweis bleibt auch im Spiel sichtbar');
+      await page.click('#btn-menu');
+      await page.click('[data-action=help]');
+      await page.click('#btn-diag-help');
+      await page.waitForFunction(() => document.querySelector('#diag-list dd'));
+      const rows = await page.evaluate(() => Object.fromEntries([...document.querySelectorAll('#diag-list dt')].map((dt) => [dt.textContent, dt.nextElementSibling.textContent])));
+      assert.equal(rows.Statusleiste, 'verdeckt die Seite (altes Symbol)');
+      assert.deepEqual(problems, []);
+      await context.close();
+    });
+
+    await test('neues Symbol (deckende Leiste, kein Inset oben): kein Hinweis, die Diagnose meldet „Seite beginnt darunter“', async () => {
+      const { context, page, problems } = await launch({ ios: true, topInset: 0 });
+      assert.equal(await page.isVisible('#icon-notice'), false);
+      await page.click('#btn-start');
+      await page.waitForSelector('#game:not([hidden]) .field');
+      await page.click('#btn-menu');
+      await page.click('[data-action=help]');
+      await page.click('#btn-diag-help');
+      await page.waitForFunction(() => document.querySelector('#diag-list dd'));
+      const rows = await page.evaluate(() => Object.fromEntries([...document.querySelectorAll('#diag-list dt')].map((dt) => [dt.textContent, dt.nextElementSibling.textContent])));
+      assert.equal(rows.Statusleiste, 'deckend, Seite beginnt darunter');
+      assert.deepEqual(problems, []);
+      await context.close();
+    });
+
+    await test('Android, Desktop und Safari-Tab (kein navigator.standalone): auch mit Inset oben kein Hinweis', async () => {
+      const { context, page, problems } = await launch({ ios: false, topInset: 59 });
+      assert.equal(await page.isVisible('#icon-notice'), false);
+      assert.deepEqual(problems, []);
+      await context.close();
+    });
+  });
 
   // ------------------------------------------------------------------------------------------
   await group('Leben: Tippen, Halten, Mehrfingerbedienung', async () => {
@@ -1595,8 +1789,8 @@ try {
     await page.waitForSelector('#setup:not([hidden])');
     const diagRows = () => page.evaluate(() => Object.fromEntries([...document.querySelectorAll('#diag-list dt')].map((dt) => [dt.textContent, dt.nextElementSibling.textContent])));
 
-    await test('Meta-Angaben: deckende Statusleiste, kein viewport-fit=cover', async () => {
-      assert.doesNotMatch(await page.getAttribute('meta[name=viewport]', 'content'), /viewport-fit/);
+    await test('Meta-Angaben: viewport-fit=cover zusammen mit der deckenden Statusleiste', async () => {
+      assert.match(await page.getAttribute('meta[name=viewport]', 'content'), /viewport-fit=cover/);
       assert.equal(await page.getAttribute('meta[name=apple-mobile-web-app-status-bar-style]', 'content'), 'black');
       assert.equal(await page.getAttribute('meta[name=apple-mobile-web-app-capable]', 'content'), 'yes');
     });

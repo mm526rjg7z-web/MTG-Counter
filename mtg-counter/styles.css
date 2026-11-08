@@ -23,6 +23,12 @@
   --safe-right: env(safe-area-inset-right, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
+  /* Rounded display corners. A phone with a home indicator has rounded corners too (radius about 40-55 px),
+     so the bottom inset doubles as the cue for them. The bottom row of buttons keeps 60 % of it as extra
+     distance on top of the safe area (34 px -> 20 px), below and at the side of a corner. With env() = 0
+     (Android, desktop, phones with square corners) every value stays 0 and nothing moves; a fixed extra
+     would move Android as well. */
+  --corner: calc(var(--safe-bottom) * 0.6);
   --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
 }
 
@@ -300,11 +306,20 @@ button { cursor: pointer; }
   --fbg: color-mix(in srgb, var(--pc-bg, #444) 30%, #000);
   --ffg: #f2f2f6;
 }
-/* Fields that touch a screen edge keep their content clear of notch and gesture bar. */
+/* Fields that touch a screen edge keep their content clear of notch, rounded corners and gesture bar.
+   The bottom row of fields is never rotated, so its button row has the screen's bottom edge as its bottom
+   edge: it also keeps its distance from the side where a field reaches a bottom corner (--corner-left/right,
+   used by .bar and .panel-bar). The top corners are not an issue: the opaque status bar covers them. */
 .field.edge-top { padding-top: var(--safe-top); }
-.field.edge-bottom { padding-bottom: var(--safe-bottom); }
+.field.edge-bottom { padding-bottom: calc(var(--safe-bottom) + var(--corner)); }
+/* Three rows (5-6 players) are only about 260 px high and the bottom row has the narrowest fields: there the
+   extra below the buttons is 30 % of --corner (6 px), or the numbers and panels of the bottom row get too
+   small on a 375 px wide phone. The buttons still sit 46 px above the edge, clear of every display corner. */
+#game[data-rows="3"] .field.edge-bottom { padding-bottom: calc(var(--safe-bottom) + var(--corner) * 0.3); }
 .field.edge-left { padding-left: var(--safe-left); }
 .field.edge-right { padding-right: var(--safe-right); }
+.field.edge-bottom.edge-left { --corner-left: var(--corner); }
+.field.edge-bottom.edge-right { --corner-right: var(--corner); }
 
 .field-inner { position: relative; flex: 1; min-width: 0; min-height: 0; container-type: size; }
 
@@ -475,7 +490,7 @@ button { cursor: pointer; }
   display: grid;
   align-items: end;
   gap: 6px;
-  padding: 0 8px 6px;
+  padding: 0 max(8px, var(--corner-right, 0px)) 6px max(8px, var(--corner-left, 0px));
   grid-template-columns: 52px minmax(0, 1fr) 48px 52px; /* medium frames (260-339 px wide) */
   grid-template-areas: "m5 name tog p5";
   pointer-events: none;
@@ -653,7 +668,14 @@ button { cursor: pointer; }
   .step-btn { min-height: 76px; }
 }
 
-.panel-bar { display: flex; gap: 6px; height: 54px; padding: 0 0 6px; }
+.panel-bar {
+  display: flex;
+  gap: 6px;
+  height: 54px;
+  padding: 0 0 6px;
+  /* like .bar: keep away from a rounded bottom corner (the panel already has 8 px at each side) */
+  margin: 0 max(0px, calc(var(--corner-right, 0px) - 8px)) 0 max(0px, calc(var(--corner-left, 0px) - 8px));
+}
 .tab {
   flex: 1;
   display: inline-flex;
@@ -778,6 +800,27 @@ button { cursor: pointer; }
   transform: translateX(-50%);
   pointer-events: none;
 }
+/* One-off hint for an old home-screen icon (js/viewport.js). Sits above the home indicator, never takes touches. */
+.icon-notice {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--safe-bottom) + 24px);
+  z-index: 60;
+  width: max-content;
+  max-width: min(92vw, 360px);
+  margin: 0;
+  padding: 12px 16px;
+  border: 2px solid var(--danger);
+  border-radius: 14px;
+  background: rgba(10, 10, 14, 0.97);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.35;
+  text-align: center;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
 /* With three rows the screen centre lies in the sideways middle fields (see js/layout.js). */
 #game[data-dock="vertical"] .dock { flex-direction: column; }
 
@@ -785,6 +828,7 @@ button { cursor: pointer; }
 dialog {
   width: min(92vw, 440px);
   max-width: none;
+  max-height: min(90vh, 760px);
   max-height: min(90dvh, 760px);
   padding: 0;
   overflow: hidden;
@@ -798,7 +842,7 @@ dialog {
 }
 dialog::backdrop { background: rgba(0, 0, 0, 0.66); }
 
-.dlg { display: flex; flex-direction: column; max-height: min(90dvh, 760px); }
+.dlg { display: flex; flex-direction: column; max-height: min(90vh, 760px); max-height: min(90dvh, 760px); }
 .dlg-head { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 8px; min-height: 60px; padding: 6px 8px 4px 22px; }
 .dlg-head h2 { margin: 0; font-size: 22px; }
 .dlg-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 8px 18px 16px; }
@@ -914,7 +958,7 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.66); }
 .prose p { margin: 8px 0; }
 
 /* ===== Result overlay (dice, coin, starting player) ===== */
-dialog.overlay { width: 100vw; max-width: none; height: 100dvh; max-height: none; border: 0; border-radius: 0; background: rgba(8, 8, 12, 0.95); }
+dialog.overlay { width: 100vw; max-width: none; height: 100vh; height: 100dvh; max-height: none; border: 0; border-radius: 0; background: rgba(8, 8, 12, 0.95); }
 dialog.overlay[open] { display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .overlay-body { display: flex; flex-direction: column; align-items: center; gap: 22px; width: 100%; padding: 24px 16px 140px; text-align: center; }
 .overlay-foot {

@@ -243,16 +243,30 @@ test('index.html wires up manifest, icons, theme colour and the iOS home screen 
   assert.match(html, /lang="de"/);
 });
 
-// Regression guard for taps landing beside the buttons in iOS home-screen apps: with viewport-fit=cover
-// and a translucent status bar iOS 26 draws from the screen edge but sizes the window one status bar
-// short (WebKit bug 301108). The opaque bar and the default viewport keep paint and touch areas aligned.
-test('index.html keeps the page below an opaque iOS status bar (no viewport-fit=cover, no translucent bar)', async () => {
+// viewport-fit=cover is what makes env(safe-area-inset-*) report the real insets (they are always 0
+// without it), and the layout needs them for the home indicator and the rounded display corners. It is
+// only safe together with the opaque status bar: with the translucent one iOS 26 draws a home-screen app
+// from the screen edge but sizes the window one status bar short, and the touch areas end up beside the
+// buttons (WebKit bug 301108). Never take one of the two out without the other.
+test('index.html reads the real safe-area insets (viewport-fit=cover) and keeps the opaque iOS status bar', async () => {
   const html = await read('index.html');
   const viewport = html.match(/<meta name="viewport" content="([^"]*)">/)?.[1] ?? '';
   assert.match(viewport, /width=device-width/);
-  assert.doesNotMatch(viewport, /viewport-fit/);
+  assert.match(viewport, /viewport-fit=cover/);
   assert.match(html, /<meta name="apple-mobile-web-app-status-bar-style" content="black">/);
   assert.doesNotMatch(html, /status-bar-style" content="black-translucent"/);
+});
+
+// Browsers that know container queries but not dvh (Chrome 105-107) must keep the old height.
+test('every dvh length is preceded by the same declaration with vh as a fallback', async () => {
+  const css = await read('styles.css');
+  const declarations = [...css.matchAll(/([a-z-]+)\s*:\s*([^;{}]+);/g)].map((m) => ({ prop: m[1], value: m[2].trim() }));
+  const dynamic = declarations.flatMap((d, i) => (/\ddvh/.test(d.value) ? [[d, i]] : []));
+  assert.ok(dynamic.length >= 3, 'the stylesheet is expected to use dvh');
+  for (const [d, i] of dynamic) {
+    const before = declarations[i - 1];
+    assert.ok(before && before.prop === d.prop && before.value === d.value.replace(/dvh/g, 'vh'), `${d.prop}: ${d.value} has no vh fallback`);
+  }
 });
 
 test('the version shown in the help matches the format x.y.z', () => {

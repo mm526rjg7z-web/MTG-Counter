@@ -2,10 +2,12 @@
 <html lang="de">
 <head>
   <meta charset="utf-8">
-  <!-- No viewport-fit=cover on purpose: together with a translucent status bar, iOS 26 draws a home-screen
-       app from the screen edge but sizes the window one status bar short (WebKit bug 301108). The page
-       stays inside the safe area instead (see README, "iPhone: Tippflächen verschoben"). -->
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <!-- viewport-fit=cover makes env(safe-area-inset-*) report the real insets (home indicator, notch, rounded
+       corners); without it they are always 0. Safe only together with the opaque status bar below: with the
+       translucent one iOS 26 draws a home-screen app from the screen edge but sizes the window one status bar
+       short (WebKit bug 301108). styles.css pads the fields with the insets, js/viewport.js warns when an old
+       icon still has the translucent bar (see README, "iPhone: Tippflächen verschoben"). -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <title>MTG Lebenspunkte-Zähler</title>
   <meta name="description" content="Lebenspunkte-Zähler für Magic: The Gathering, optimiert für Commander (EDH). Läuft offline.">
   <meta name="theme-color" content="#0b0b10">
@@ -18,8 +20,9 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="MTG Zähler">
-  <!-- Opaque status bar: the page starts below it. iOS reads this tag only when the app is added to the
-       Home Screen, so an existing icon keeps its old setting until it is removed and added again. -->
+  <!-- Opaque status bar: the page starts below it (it needs no top inset). iOS reads this tag only when the
+       app is added to the Home Screen, so an existing icon keeps its old setting until it is removed and
+       added again. display: standalone in manifest.webmanifest is what makes it a home-screen app. -->
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
 
   <link rel="stylesheet" href="styles.css">
@@ -129,6 +132,9 @@
         <p class="setup-foot"><span id="setup-version"></span> · <button id="btn-diag-setup" class="link-btn" type="button">Anzeige-Diagnose</button></p>
       </div>
     </section>
+
+    <!-- One-off hint for an old home-screen icon (statusBarOverlapsPage in js/viewport.js). Never takes touches. -->
+    <p id="icon-notice" class="icon-notice" role="alert" hidden>Dieses Symbol stammt aus einer älteren Version. Bitte vom Home-Bildschirm löschen und die Seite in Safari über Teilen → „Zum Home-Bildschirm“ neu hinzufügen, sonst sitzen die Tippflächen neben den Buttons.</p>
   </main>
 
   <!-- Menu -->

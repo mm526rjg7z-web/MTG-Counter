@@ -11,12 +11,13 @@ import { getLayout } from './js/layout.js';
 import { initSetup } from './js/setup.js';
 import { createSaver, getStorage, loadSaved } from './js/storage.js';
 import { initTools } from './js/tools.js';
-import { watchViewport } from './js/viewport.js';
+import { measureViewport, statusBarOverlapsPage, watchViewport } from './js/viewport.js';
 import { createWakeLock } from './js/wakelock.js';
 
 const $ = (id) => document.getElementById(id);
 const TOAST_MS = 2800;
 const UPDATE_CHECK_MS = 5 * 60 * 1000; // at most one look for a new version per 5 minutes
+const NOTICE_MS = 20_000; // how long the old-icon hint stays
 
 function browserIsSupported() {
   return typeof CSS !== 'undefined'
@@ -105,6 +106,7 @@ function main() {
     model.board?.destroy();
     const layout = getLayout(model.game.players.length);
     $('game').dataset.dock = layout.dock;
+    $('game').dataset.rows = String(layout.rows);
     model.board = createBoard($('board'), { layout, api });
     model.board.update(model.game);
     syncDock();
@@ -193,6 +195,16 @@ function main() {
     $('dlg-help').close();
     diagnostics.open();
   });
+
+  // An icon added before 1.0.1 still has the translucent status bar. With viewport-fit=cover iOS then draws the
+  // page under it and shifts the touch areas (WebKit bug 301108), so say how to fix it. Never shown on Android.
+  if (statusBarOverlapsPage(measureViewport())) {
+    const notice = $('icon-notice');
+    notice.hidden = false;
+    setTimeout(() => {
+      notice.hidden = true;
+    }, NOTICE_MS);
+  }
 
   // iOS Safari reports pinch gestures separately from touch-action.
   for (const type of ['gesturestart', 'gesturechange', 'gestureend']) {
