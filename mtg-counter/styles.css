@@ -638,6 +638,11 @@ button { cursor: pointer; }
 .step-btn .icon { width: 28px; height: 28px; }
 .step-minus { grid-area: minus; }
 .step-plus { grid-area: plus; }
+/* -5 / +5 of the commander page. Hidden until a frame has room for a second row (see "Commander page" below). */
+.step-btn5 { display: none; }
+.stepper .step-btn5 { min-height: 48px; font-size: 21px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.step-minus5 { grid-area: m5; }
+.step-plus5 { grid-area: p5; }
 .step-label { grid-area: label; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 700; line-height: 1.2; opacity: 0.9; }
 .step-value { grid-area: value; font-size: 30px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.05; }
 .step-hint { grid-area: hint; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; opacity: 0.72; }
@@ -659,6 +664,14 @@ button { cursor: pointer; }
 @container frame (min-width: 340px) {
   .step-value { font-size: clamp(40px, 10cqh, 64px); }
   .step-label { font-size: 13px; }
+  /* "Schaden vom Commander von <Name>" is about 240 px wide: it wraps (in two even lines) rather than
+     cutting off the name, which is the part that matters. */
+  .stepper[data-page="cmd"] .step-label { margin-bottom: 2px; white-space: normal; text-wrap: balance; }
+}
+/* Medium frames (260-339 px wide, e.g. the sideways fields of 5-6 players on a 390 px phone): the label has
+   only 130-210 px between the two buttons, "Commander von Spieler 1" needs 138 px at this size. */
+@container frame (min-width: 260px) and (max-width: 339px) {
+  .stepper[data-page="cmd"] .step-label { font-size: 11px; }
 }
 @container frame (min-width: 340px) and (min-height: 340px) {
   .sel { width: 60px; height: 60px; }
@@ -666,7 +679,36 @@ button { cursor: pointer; }
   .sel-val { font-size: 18px; }
   .stepper { grid-template-columns: 76px minmax(0, 1fr) 76px; }
   .step-btn { min-height: 76px; }
+  .stepper .step-btn5 { min-height: 56px; }
 }
+
+/* Commander page: -5 | hint | +5 in a third row under the -/+ buttons. It needs about 50 px more than
+   the stepper alone, which the fields of 2-4 players have everywhere (320 px high and more, even on a
+   375 x 647 px phone) and those of 5-6 players have only on the largest phones. Smaller frames (the
+   dense and compact tiers below, which are all below 300 px) keep the single row; holding -/+ for a
+   second steps by 5 there, as it does everywhere. */
+@container frame (min-height: 320px) {
+  .stepper[data-page="cmd"] { grid-template-areas: "minus label plus" "minus value plus" "m5 hint p5"; }
+  .stepper[data-page="cmd"] .step-btn5 { display: grid; margin-top: 6px; }
+}
+@container frame (min-height: 320px) and (max-width: 259px) {
+  .stepper[data-page="cmd"] { grid-template-areas: "label label label" "minus value plus" "m5 hint p5"; }
+  /* the gap between -5 and +5 is only 47-82 px wide: room for the one word, not for "ab 21 tödlich" */
+  .stepper[data-page="cmd"].is-lethal .step-hint { display: block; font-size: 10px; }
+}
+
+/* From 21 on the value is a red plate and the hint says "tödlich" (counting goes on, nothing is locked).
+   The same red as the selector tile and the chip of the closed field. */
+.stepper[data-page="cmd"].is-lethal .step-value {
+  padding: 0 4px; /* the narrowest frames only have 47 px between the buttons */
+  border-radius: 12px;
+  background: #b3001b;
+  color: #fff;
+}
+@container frame (min-width: 260px) {
+  .stepper[data-page="cmd"].is-lethal .step-value { padding: 0 12px; }
+}
+.stepper[data-page="cmd"].is-lethal .step-hint { color: #ff8a80; font-weight: 800; opacity: 1; }
 
 .panel-bar {
   display: flex;
@@ -870,6 +912,8 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.66); }
   font-weight: 700;
   text-align: center;
 }
+/* Option under the tiles of the menu (a switch like the ones on the start screen). */
+.menu-option { margin-top: 12px; padding-top: 6px; border-top: 1px solid var(--line); }
 .tile .icon { width: 30px; height: 30px; }
 .tile:active { background: var(--surface-3); }
 .tile:disabled { opacity: 0.4; cursor: default; }

@@ -195,6 +195,167 @@ test('commander damage from different sources is not added up', () => {
   assert.equal(isEliminated(g.players[1]), false);
 });
 
+// ---- commander damage that also costs life (option "Commander-Schaden zieht auch Leben ab") ----------------
+
+const linked = { linkLife: true };
+
+test('without the option commander damage leaves the life total alone', () => {
+  let g = game();
+  g = adjust(g, cmd(1, 0), 4, T0);
+  assert.equal(g.players[1].life, 40);
+  assert.equal(g.history[0].life, undefined);
+});
+
+test('with the option a change of n in commander damage changes the recipient\'s life by -n, in both directions', () => {
+  let g = game();
+  g = adjust(g, cmd(1, 0), 3, T0, linked);
+  assert.deepEqual([g.players[1].cmd[0], g.players[1].life], [3, 37]);
+  assert.deepEqual(g.history[0], { id: 1, t: T0, kind: 'cmd', pid: 1, src: 0, from: 0, to: 3, life: { from: 40, to: 37 } });
+  g = adjust(g, cmd(1, 0), -1, T0 + 10_000, linked); // taking one back gives the life back
+  assert.deepEqual([g.players[1].cmd[0], g.players[1].life], [2, 38]);
+  assert.deepEqual(g.players.filter((p) => p.id !== 1).map((p) => p.life), [40, 40, 40], 'other players are untouched');
+});
+
+test('the life change is the change that really happened: a counter at 0 cannot go lower and costs nothing', () => {
+  let g = game();
+  assert.equal(adjust(g, cmd(1, 0), -2, T0, linked), g, 'no change, no history entry');
+  g = adjust(g, cmd(1, 0), 2, T0, linked);
+  g = adjust(g, cmd(1, 0), -5, T0 + 10_000, linked); // only 2 can be taken back
+  assert.deepEqual([g.players[1].cmd[0], g.players[1].life], [0, 40]);
+});
+
+test('life stays within its limits and the entry records what happened', () => {
+  let g = game(2, 5);
+  g = adjust(g, life(0), LIFE_MIN - 5, T0); // clamped to the minimum
+  g = adjust(g, cmd(0, 1), 4, T0 + 10_000, linked);
+  assert.equal(g.players[0].life, LIFE_MIN, 'cannot fall below the minimum');
+  assert.deepEqual(g.history.at(-1).life, { from: LIFE_MIN, to: LIFE_MIN });
+  g = undo(g);
+  assert.deepEqual([g.players[0].cmd[1], g.players[0].life], [0, LIFE_MIN]);
+});
+
+test('one undo reverts the commander damage and the life together', () => {
+  let g = game();
+  g = adjust(g, life(1), -2, T0); // an ordinary life change before
+  g = adjust(g, cmd(1, 2), 6, T0 + 10_000, linked);
+  assert.deepEqual([g.players[1].cmd[2], g.players[1].life], [6, 32]);
+  assert.equal(g.history.length, 2);
+  g = undo(g);
+  assert.deepEqual([g.players[1].cmd[2], g.players[1].life], [0, 38], 'both back with a single undo');
+  assert.equal(g.history.length, 1);
+  g = undo(g);
+  assert.equal(g.players[1].life, 40);
+  assert.equal(canUndo(g), false);
+});
+
+test('a burst of linked changes (taps, hold-to-repeat) is one history entry and one undo', () => {
+  let g = game();
+  for (let i = 0; i < 5; i++) g = adjust(g, cmd(1, 0), 1, T0 + i * 200, linked);
+  assert.equal(g.history.length, 1);
+  assert.deepEqual(g.history[0], { id: 1, t: T0 + 800, kind: 'cmd', pid: 1, src: 0, from: 0, to: 5, life: { from: 40, to: 35 } });
+  g = undo(g);
+  assert.deepEqual([g.players[1].cmd[0], g.players[1].life], [0, 40]);
+});
+
+test('a linked burst whose net change is zero leaves no entry', () => {
+  let g = game();
+  g = adjust(g, cmd(1, 0), 3, T0, linked);
+  g = adjust(g, cmd(1, 0), -3, T0 + 100, linked);
+  assert.deepEqual(g.history, []);
+  assert.deepEqual([g.players[1].cmd[0], g.players[1].life], [0, 40]);
+});
+
+test('linked and plain changes of the same counter never merge into each other', () => {
+  let g = game();
+  g = adjust(g, cmd(1, 0), 2, T0); // option off
+  g = adjust(g, cmd(1, 0), 2, T0 + 100, linked); // option on
+  g = adjust(g, cmd(1, 0), 2, T0 + 200); // option off again
+  assert.equal(g.history.length, 3);
+  assert.deepEqual([g.players[1].cmd[0], g.players[1].life], [6, 38], 'only the linked change cost life');
+  for (const expected of [[4, 38], [2, 40], [0, 40]]) {
+    g = undo(g);
+    assert.deepEqual([g.players[1].cmd[0], g.players[1].life], expected);
+  }
+});
+
+test('an entry never hops over another one that touches the same life total (undo stays consistent)', () => {
+  let g = game();
+  g = adjust(g, cmd(1, 0), 1, T0, linked); // life 39
+  g = adjust(g, life(1), -1, T0 + 100); // life 38: touches the same life total, no merge into the entry before
+  g = adjust(g, cmd(1, 0), 1, T0 + 200, linked); // life 37: must not merge into the first entry across the life entry
+  assert.equal(g.history.length, 3);
+  assert.deepEqual([g.players[1].cmd[0], g.players[1].life], [2, 37]);
+  for (const expected of [[1, 38], [1, 39], [0, 40]]) {
+    g = undo(g);
+    assert.deepEqual([g.players[1].cmd[0], g.players[1].life], expected);
+  }
+  // and the other way round: an ordinary life change must not merge into an earlier life entry across a linked one
+  g = adjust(g, life(1), -1, T0 + 10_000); // 39
+  g = adjust(g, cmd(1, 0), 3, T0 + 10_100, linked); // 36
+  g = adjust(g, life(1), -1, T0 + 10_200); // 35
+  assert.equal(g.history.length, 3);
+  for (const expected of [[3, 36], [0, 39], [0, 40]]) {
+    g = undo(g);
+    assert.deepEqual([g.players[1].cmd[0], g.players[1].life], expected);
+  }
+});
+
+test('independent entries of other players still merge as before', () => {
+  let g = game();
+  g = adjust(g, cmd(1, 0), 1, T0, linked);
+  g = adjust(g, life(2), -1, T0 + 100);
+  g = adjust(g, cmd(1, 0), 1, T0 + 200, linked); // the entry in between touches player 2 only
+  assert.equal(g.history.length, 2);
+  assert.deepEqual(g.history.map((e) => [e.kind, e.pid]), [['life', 2], ['cmd', 1]]);
+  assert.deepEqual(g.history.at(-1).life, { from: 40, to: 38 });
+});
+
+test('the life indicator shows the life lost to commander damage, and an ordinary change after it adds to its own sum', () => {
+  let g = game();
+  g = adjust(g, cmd(1, 0), 3, T0, linked);
+  assert.deepEqual(getBurst(g, 1, T0 + 100), { delta: -3, expiresAt: T0 + BURST_MS });
+  assert.equal(getBurst(g, 0, T0 + 100), null);
+  g = adjust(g, cmd(1, 0), -1, T0 + 200, linked);
+  assert.deepEqual(getBurst(g, 1, T0 + 300), { delta: -2, expiresAt: T0 + 200 + BURST_MS });
+  assert.equal(getBurst(adjust(game(), cmd(1, 0), 3, T0), 1, T0 + 100), null, 'plain commander damage changes no life, so there is nothing to show');
+});
+
+test('life lost to commander damage can eliminate, and the undo brings the player back', () => {
+  let g = game(2, 3);
+  g = adjust(g, cmd(0, 1), 3, T0, linked);
+  assert.deepEqual(eliminationReasons(g.players[0]), ['life']);
+  g = undo(g);
+  assert.equal(isEliminated(g.players[0]), false);
+});
+
+test('a new game resets commander damage and the history, the option is not part of the game', () => {
+  let g = game();
+  g = adjust(g, cmd(1, 0), 7, T0, linked);
+  const fresh = resetGame(g);
+  assert.deepEqual(fresh.players.map((p) => p.cmd.every((v) => v === 0)), [true, true, true, true]);
+  assert.deepEqual(fresh.players.map((p) => p.life), [40, 40, 40, 40]);
+  assert.deepEqual(fresh.history, []);
+});
+
+test('restoring a saved game keeps the linked life change and drops a broken one', () => {
+  let g = game(3, 40);
+  g = adjust(g, cmd(1, 0), 4, T0, linked);
+  g = adjust(g, cmd(2, 0), 2, T0 + 10_000);
+  const roundTrip = restoreGame(JSON.parse(JSON.stringify(g)));
+  assert.deepEqual(roundTrip.history, g.history);
+  assert.deepEqual(roundTrip.players.map((p) => p.life), [40, 36, 40]);
+  assert.deepEqual(undo(undo(roundTrip)).players.map((p) => p.life), [40, 40, 40]);
+
+  const raw = JSON.parse(JSON.stringify(g));
+  raw.history[0].life = { from: 'x', to: 1.5 };
+  assert.equal(restoreGame(raw).history[0].life, undefined, 'a broken life part is dropped, the rest of the entry stays');
+  raw.history[0].life = { from: 40, to: 1e9 };
+  assert.equal(restoreGame(raw).history[0].life, undefined, 'out-of-range values are dropped');
+  const onLife = JSON.parse(JSON.stringify(g));
+  onLife.history.push({ id: 9, t: T0, kind: 'life', pid: 0, from: 40, to: 39, life: { from: 1, to: 2 } });
+  assert.equal(restoreGame(onLife).history.at(-1).life, undefined, 'only commander entries carry a life part');
+});
+
 test('poison 10 and life 0 eliminate, and every reason is reported', () => {
   let g = game(2, 20);
   g = adjust(g, { pid: 0, kind: 'poison' }, POISON_LETHAL - 1, T0);

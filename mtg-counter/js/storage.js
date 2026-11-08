@@ -11,6 +11,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   startLife: DEFAULT_START_LIFE,
   vibrate: true,
   keepAwake: true,
+  cmdLife: false, // commander damage also takes life ("Commander-Schaden zieht auch Lebenspunkte ab")
 });
 
 export function sanitizeSettings(raw) {
@@ -20,6 +21,7 @@ export function sanitizeSettings(raw) {
     startLife: clampInt(r.startLife ?? DEFAULT_SETTINGS.startLife, 1, START_LIFE_MAX),
     vibrate: typeof r.vibrate === 'boolean' ? r.vibrate : DEFAULT_SETTINGS.vibrate,
     keepAwake: typeof r.keepAwake === 'boolean' ? r.keepAwake : DEFAULT_SETTINGS.keepAwake,
+    cmdLife: typeof r.cmdLife === 'boolean' ? r.cmdLife : DEFAULT_SETTINGS.cmdLife,
   };
 }
 

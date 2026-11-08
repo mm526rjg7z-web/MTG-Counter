@@ -6,7 +6,7 @@ import { h, icon, setAttr, setText } from './dom.js';
 import { attachHold } from './hold.js';
 import { getColor } from './palette.js';
 import { COMMANDER_LETHAL, POISON_LETHAL, eliminationReasons, getBurst } from './game.js';
-import { REASON_LABELS, formatNumber, formatSigned } from './format.js';
+import { REASON_LABELS, commanderDamageLabel, formatNumber, formatSigned } from './format.js';
 
 const MISC_COUNTERS = [
   { kind: 'poison', label: 'Gift', icon: 'drop', hint: `ab ${POISON_LETHAL} ausgeschieden` },
@@ -55,7 +55,7 @@ export function createField({ cell, playerCount, api }) {
 
   // ---- counter panel --------------------------------------------------------------------------
   const cmdSelectors = new Map(); // source seat -> { btn, val }
-  const cmdRow = h('div', { class: 'sel-row', role: 'group', 'aria-label': 'Commander-Schaden von' });
+  const cmdRow = h('div', { class: 'sel-row', role: 'group', 'aria-label': 'Commander wählen' });
   for (const src of opponents) {
     const dot = h('span', { class: 'dot' });
     const val = h('span', { class: 'sel-val' }, '0');
@@ -108,7 +108,11 @@ export function createField({ cell, playerCount, api }) {
   const stepValue = h('span', { class: 'step-value' });
   const stepMinus = h('button', { class: 'step-btn step-minus', type: 'button' }, icon('minus'));
   const stepPlus = h('button', { class: 'step-btn step-plus', type: 'button' }, icon('plus'));
-  const stepper = h('div', { class: 'stepper' }, stepLabel, stepMinus, stepValue, stepPlus, stepHint);
+  // -5 / +5 for commander damage like the life buttons. CSS shows them only where the panel has room
+  // (frames of 320 px and more in height); elsewhere holding -/+ for a second steps by 5 as well.
+  const stepMinus5 = h('button', { class: 'step-btn step-btn5 step-minus5', type: 'button', onclick: () => api.change(currentTarget(), -5, 'step5') }, '−5');
+  const stepPlus5 = h('button', { class: 'step-btn step-btn5 step-plus5', type: 'button', onclick: () => api.change(currentTarget(), 5, 'step5') }, '+5');
+  const stepper = h('div', { class: 'stepper', dataset: { page: 'cmd' } }, stepLabel, stepMinus, stepValue, stepPlus, stepHint, stepMinus5, stepPlus5);
 
   const currentTarget = () => (ui.page === 'cmd'
     ? { pid: seat, kind: 'cmd', src: ui.cmdSrc }
@@ -181,7 +185,9 @@ export function createField({ cell, playerCount, api }) {
       setText(c.val, String(value));
       c.btn.setAttribute('aria-pressed', String(src === ui.cmdSrc));
       c.btn.classList.toggle('is-lethal', value >= COMMANDER_LETHAL);
-      setAttr(c.btn, 'aria-label', `Commander-Schaden von ${source.name}: ${value}`);
+      const tileLabel = `${commanderDamageLabel(source.name)}: ${value}${value >= COMMANDER_LETHAL ? ' (tödlich)' : ''}`;
+      setAttr(c.btn, 'aria-label', tileLabel);
+      setAttr(c.btn, 'title', tileLabel);
     }
     for (const counter of MISC_COUNTERS) {
       const c = miscSelectors.get(counter.kind);
@@ -205,11 +211,11 @@ export function createField({ cell, playerCount, api }) {
     let lethal = false;
     if (onCmd) {
       const source = game.players[ui.cmdSrc];
-      label = `Commander-Schaden von ${source.name}`;
-      shortLabel = `von ${source.name}`;
-      hint = `ab ${COMMANDER_LETHAL} ausgeschieden`;
+      label = commanderDamageLabel(source.name);
+      shortLabel = `Commander von ${source.name}`;
       value = p.cmd[ui.cmdSrc];
       lethal = value >= COMMANDER_LETHAL;
+      hint = lethal ? 'tödlich' : `ab ${COMMANDER_LETHAL} tödlich`;
     } else {
       const counter = MISC_COUNTERS.find((c) => c.kind === ui.miscKind);
       label = counter.label;
@@ -223,8 +229,11 @@ export function createField({ cell, playerCount, api }) {
     setText(stepHint, hint);
     setText(stepValue, String(value));
     stepper.classList.toggle('is-lethal', lethal);
+    stepper.dataset.page = ui.page;
     setAttr(stepMinus, 'aria-label', `${label} verringern`);
     setAttr(stepPlus, 'aria-label', `${label} erhöhen`);
+    setAttr(stepMinus5, 'aria-label', `${label} um 5 verringern`);
+    setAttr(stepPlus5, 'aria-label', `${label} um 5 erhöhen`);
   }
 
   // Commander shields take the colour of the player who dealt the damage.
@@ -249,7 +258,7 @@ export function createField({ cell, playerCount, api }) {
         icon: 'shield',
         iconColor: getColor(source.color).bg,
         text: String(value),
-        label: `Commander-Schaden von ${source.name}: ${value}`,
+        label: `${commanderDamageLabel(source.name)}: ${value}${value >= COMMANDER_LETHAL ? ' (tödlich)' : ''}`,
       });
     }
     for (const counter of MISC_COUNTERS) {

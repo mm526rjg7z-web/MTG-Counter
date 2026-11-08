@@ -9,8 +9,8 @@ import { APP_VERSION } from './version.js';
 
 const byId = (id) => document.getElementById(id);
 
-// actions: { dice, coin, starter, undo, new, settings, rename(pid, name), recolor(pid, colorId) }
-export function initDialogs({ getGame, actions }) {
+// actions: { dice, coin, starter, undo, new, settings, rename(pid, name), recolor(pid, colorId), option(patch) }
+export function initDialogs({ getGame, getSettings, actions }) {
   const menu = byId('dlg-menu');
   const history = byId('dlg-history');
   const help = byId('dlg-help');
@@ -21,6 +21,7 @@ export function initDialogs({ getGame, actions }) {
   const logUndo = byId('log-undo');
   const nameInput = byId('player-name');
   const swatches = byId('player-colors');
+  const cmdLife = byId('opt-cmd-life');
   let editing = null;
 
   byId('about-version').textContent = `Version ${APP_VERSION}`;
@@ -36,7 +37,11 @@ export function initDialogs({ getGame, actions }) {
   }
 
   // ---- menu -----------------------------------------------------------------------------------
+  // "Commander-Schaden zieht auch Lebenspunkte ab": a switch under the tiles, saved with the other settings.
+  cmdLife.addEventListener('change', () => actions.option({ cmdLife: cmdLife.checked }));
+
   function updateMenu() {
+    cmdLife.checked = getSettings().cmdLife;
     const game = getGame();
     const tile = byId('menu-undo');
     const entry = game ? lastEntry(game) : null;
@@ -84,10 +89,15 @@ export function initDialogs({ getGame, actions }) {
     logList.replaceChildren(...[...game.history].reverse().map((entry) => {
       const d = describeEntry(entry, game);
       const who = game.players[d.pid];
-      // numbers: "Leben: 40 → 33 (−7)", markers: "Anna wird Monarch"
+      // numbers: "Leben: 40 → 33 (−7)", markers: "Anna wird Monarch",
+      // commander damage that also took life: "Schaden vom Commander von Ben: 0 → 3 (+3) · Leben 40 → 37 (−3)"
       const what = d.phrase !== null
         ? h('span', { class: 'log-change' }, d.phrase)
-        : [`${d.label}: `, h('span', { class: 'log-change' }, `${d.from} → ${d.to} (${formatSigned(d.delta)})`)];
+        : [
+          `${d.label}: `,
+          h('span', { class: 'log-change' }, `${d.from} → ${d.to} (${formatSigned(d.delta)})`),
+          d.life ? [' · Leben ', h('span', { class: 'log-change' }, `${d.life.from} → ${d.life.to} (${formatSigned(d.life.delta)})`)] : null,
+        ];
       return h('li', { class: 'log-row' },
         h('span', { class: 'log-time' }, formatTime(entry.t)),
         h('span', { class: 'log-who' }, h('i', { class: 'log-dot', style: { background: getColor(who.color).bg } }), h('span', {}, who.name)),

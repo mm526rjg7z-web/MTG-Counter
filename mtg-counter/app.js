@@ -55,7 +55,7 @@ function main() {
   // phase: 'tap' | 'repeat' | 'fast' | 'step5' | 'key' (decides the haptic pulse)
   function change(target, delta, phase) {
     const before = model.game;
-    const after = adjust(before, target, delta, Date.now());
+    const after = adjust(before, target, delta, Date.now(), { linkLife: model.settings.cmdLife });
     if (after === before) return; // clamped at a limit: nothing happened
     commit(after);
     if (!isEliminated(before.players[target.pid]) && isEliminated(after.players[target.pid])) haptic.out();
@@ -164,7 +164,9 @@ function main() {
 
   const dialogs = initDialogs({
     getGame: () => model.game,
+    getSettings: () => model.settings,
     actions: {
+      option: changeOption,
       dice: () => tools.openDice(),
       coin: () => tools.flipCoin(),
       starter: () => tools.pickStarter(),

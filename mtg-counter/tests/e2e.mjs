@@ -956,6 +956,276 @@ try {
   });
 
   // ------------------------------------------------------------------------------------------
+  // Commander damage is counted per commander and named after its owner, not after whoever controls the
+  // commander right now: players[recipient].cmd[owner]. -1/-5/+1/+5, red from 21, and optionally it also costs
+  // life, in which case one undo takes both back.
+  await group('Commander-Schaden: pro Commander, ±1 und ±5, tödlich ab 21, optional mit Lebenspunkten', async () => {
+    const { context, page, problems } = await openApp(browser, server.url);
+    await startGame(page, 4);
+    const f0 = field(page, 0);
+    const tiles = (f) => f.locator('.sel-row:not([hidden]) .sel');
+    const valueOf = async (f) => toNumber(await f.locator('.step-value').innerText());
+    const openCommander = async (f) => {
+      if (!(await f.locator('.panel').isVisible())) await f.locator('.toggle').tap();
+      await f.locator('.tab').nth(0).tap();
+    };
+    const closePanel = (f) => f.locator('.tab-close').tap();
+    // The option is a switch in the menu, under the tiles.
+    const setOption = async (on) => {
+      await page.click('#btn-menu');
+      if ((await page.isChecked('#opt-cmd-life')) !== on) await page.click('#opt-cmd-life', { force: true });
+      assert.equal(await page.isChecked('#opt-cmd-life'), on);
+      await page.keyboard.press('Escape');
+    };
+
+    await test('der Zähler-Button öffnet „Commander“: eine Kachel je Gegner in dessen Farbe, die Beschriftung nennt den Besitzer des Commanders', async () => {
+      await openCommander(f0);
+      assert.equal(await tiles(f0).count(), 3, 'drei Gegner');
+      const colors = await page.evaluate(() => {
+        const normalize = (value) => {
+          const probe = document.createElement('i');
+          probe.style.background = value;
+          document.body.append(probe);
+          const rgb = getComputedStyle(probe).backgroundColor;
+          probe.remove();
+          return rgb;
+        };
+        const dots = [...document.querySelectorAll('.field[data-seat="0"] .sel-row:not([hidden]) .dot')].map((dot) => getComputedStyle(dot).backgroundColor);
+        const owners = [1, 2, 3].map((seat) => normalize(document.querySelector(`.field[data-seat="${seat}"]`).style.getPropertyValue('--pc-bg')));
+        return { dots, owners };
+      });
+      assert.deepEqual(colors.dots, colors.owners, 'die Kacheln tragen die Farben der Gegner');
+      assert.equal(await f0.locator('.lbl-long').textContent(), 'Schaden vom Commander von Spieler 2');
+      assert.equal(await f0.locator('.lbl-short').textContent(), 'Commander von Spieler 2');
+      assert.equal(await f0.locator('.step-plus').getAttribute('aria-label'), 'Schaden vom Commander von Spieler 2 erhöhen');
+      await tiles(f0).nth(2).tap();
+      assert.equal(await f0.locator('.lbl-long').textContent(), 'Schaden vom Commander von Spieler 4');
+      assert.equal(await tiles(f0).nth(2).getAttribute('aria-pressed'), 'true');
+      await tiles(f0).nth(0).tap();
+      await shot(page, 'commander-schaden-panel');
+    });
+
+    await test('die Beschriftung zeigt den aktuellen Namen und folgt einer Umbenennung, auch bei offenem Panel', async () => {
+      await field(page, 1).locator('.name').tap();
+      await page.fill('#player-name', 'Mira');
+      await page.keyboard.press('Enter');
+      assert.equal(await f0.locator('.lbl-long').textContent(), 'Schaden vom Commander von Mira');
+      assert.equal(await f0.locator('.lbl-short').textContent(), 'Commander von Mira');
+      assert.equal(await tiles(f0).nth(0).getAttribute('aria-label'), 'Schaden vom Commander von Mira: 0');
+    });
+
+    await test('±1 und ±5 wie beim Leben, die Tasten sind mindestens 44 px groß, unter 0 geht es nicht', async () => {
+      for (const selector of ['.step-minus', '.step-plus', '.step-minus5', '.step-plus5']) {
+        const box = await f0.locator(selector).boundingBox();
+        assert.ok(box && box.width >= 44 && box.height >= 44, `${selector}: ${box?.width}x${box?.height}`);
+      }
+      await f0.locator('.step-plus5').tap();
+      assert.equal(await valueOf(f0), 5);
+      await f0.locator('.step-plus').tap();
+      assert.equal(await valueOf(f0), 6);
+      await f0.locator('.step-minus').tap();
+      await f0.locator('.step-minus5').tap();
+      assert.equal(await valueOf(f0), 0);
+      await f0.locator('.step-minus5').tap();
+      assert.equal(await valueOf(f0), 0, 'nicht unter 0');
+      assert.equal(await lifeOf(page, 0), 40, 'ohne die Option bleibt das Leben unberührt');
+    });
+
+    await test('aus Sicht des Spielers: beim um 180° gedrehten Spieler liegt +5 links und −5 rechts, beim anderen umgekehrt', async () => {
+      for (const seat of [1, 2, 3]) await openCommander(field(page, seat));
+      const rows = await page.evaluate(() => [...document.querySelectorAll('.field')].map((f) => ({
+        rotation: f.querySelector('.frame').dataset.rotation,
+        plus5: f.querySelector('.step-plus5').getBoundingClientRect().x,
+        minus5: f.querySelector('.step-minus5').getBoundingClientRect().x,
+      })));
+      assert.ok(rows.some((r) => r.rotation === '180') && rows.some((r) => r.rotation === '0'));
+      for (const r of rows) {
+        if (r.rotation === '180') assert.ok(r.plus5 < r.minus5, 'gedrehter Spieler: +5 links');
+        else assert.ok(r.plus5 > r.minus5, 'Spieler am unteren Rand: +5 rechts');
+      }
+      for (const seat of [1, 2, 3]) await closePanel(field(page, seat));
+    });
+
+    await test('ab 21 ist der Wert rot hervorgehoben und der Hinweis lautet „tödlich“; weiterzählen bleibt möglich', async () => {
+      const lethal = () => f0.evaluate((el) => {
+        const pressed = el.querySelector('.sel[aria-pressed="true"]');
+        return {
+          stepper: el.querySelector('.stepper').classList.contains('is-lethal'),
+          plate: getComputedStyle(el.querySelector('.step-value')).backgroundColor,
+          hint: el.querySelector('.step-hint').textContent,
+          tile: pressed.classList.contains('is-lethal'),
+          tileColor: getComputedStyle(pressed).backgroundColor,
+          label: pressed.getAttribute('aria-label'),
+        };
+      });
+      for (let i = 0; i < 4; i++) await f0.locator('.step-plus5').tap();
+      assert.equal(await valueOf(f0), 20);
+      let state = await lethal();
+      assert.deepEqual([state.stepper, state.tile, state.hint], [false, false, 'ab 21 tödlich']);
+      assert.notEqual(state.plate, 'rgb(179, 0, 27)');
+      await f0.locator('.step-plus').tap();
+      state = await lethal();
+      assert.equal(await valueOf(f0), 21);
+      assert.deepEqual([state.stepper, state.tile, state.hint, state.plate, state.tileColor], [true, true, 'tödlich', 'rgb(179, 0, 27)', 'rgb(179, 0, 27)']);
+      assert.match(state.label, /\(tödlich\)$/);
+      await shot(page, 'commander-schaden-toedlich');
+      await f0.locator('.step-plus').tap();
+      assert.equal(await valueOf(f0), 22, 'weiterzählen bleibt möglich');
+      await f0.locator('.step-minus5').tap();
+      assert.equal(await valueOf(f0), 17);
+      assert.equal((await lethal()).stepper, false, 'unter 21 ist die Hervorhebung wieder weg');
+      await closePanel(f0);
+    });
+
+    await test('Menü: „Commander-Schaden zieht auch Lebenspunkte ab“ ist standardmäßig aus, erklärt sich und passt in den Dialog', async () => {
+      await page.click('#btn-menu');
+      assert.equal(await page.isChecked('#opt-cmd-life'), false);
+      assert.match(await page.textContent('#dlg-menu'), /Commander-Schaden zieht auch Lebenspunkte ab/);
+      assert.match(await page.textContent('#cmd-life-hint'), /Rückgängig macht beides zusammen rückgängig/);
+      const dialog = await page.locator('#dlg-menu').boundingBox();
+      const option = await page.locator('#dlg-menu .menu-option').boundingBox();
+      assert.ok(dialog.y >= 0 && dialog.y + dialog.height <= 844, 'der Dialog passt auf den Bildschirm');
+      assert.ok(option.y >= dialog.y && option.y + option.height <= dialog.y + dialog.height, 'die Option liegt im Dialog');
+      await shot(page, 'menue-commander-leben');
+      await page.keyboard.press('Escape');
+    });
+
+    await test('mit der Option ändert Commander-Schaden um n das Leben um −n, in beide Richtungen und nur um das, was wirklich geändert wurde', async () => {
+      await setOption(true);
+      await sleep(BURST_MS + 60);
+      await openCommander(f0);
+      await tiles(f0).nth(1).tap(); // Commander von Spieler 3: 0
+      for (let i = 0; i < 3; i++) await f0.locator('.step-plus').tap();
+      assert.deepEqual([await valueOf(f0), await lifeOf(page, 0)], [3, 37]);
+      await f0.locator('.step-minus').tap();
+      assert.deepEqual([await valueOf(f0), await lifeOf(page, 0)], [2, 38], 'zurücknehmen gibt Leben zurück');
+      await f0.locator('.step-plus5').tap();
+      assert.deepEqual([await valueOf(f0), await lifeOf(page, 0)], [7, 33]);
+      await f0.locator('.step-minus5').tap();
+      await f0.locator('.step-minus5').tap(); // only 2 are left to take back
+      assert.deepEqual([await valueOf(f0), await lifeOf(page, 0)], [0, 40]);
+      for (const seat of [1, 2, 3]) assert.equal(await lifeOf(page, seat), 40, 'andere Spieler bleiben unberührt');
+    });
+
+    await test('die Lebensanzeige zeigt den Verlust, die Historie nennt beide Änderungen, ein einziges Rückgängig nimmt beides zurück', async () => {
+      await sleep(BURST_MS + 60);
+      await f0.locator('.step-plus5').tap();
+      assert.deepEqual([await valueOf(f0), await lifeOf(page, 0)], [5, 35]);
+      assert.equal((await f0.locator('.delta').textContent()).trim(), `${MINUS}5`);
+      await page.click('#btn-menu');
+      await page.click('[data-action=history]');
+      const newest = await page.locator('#log-list .log-row').first().innerText();
+      assert.match(newest, /Schaden vom Commander von Spieler 3/);
+      assert.match(newest, /0 → 5 \(\+5\)/);
+      assert.match(newest, new RegExp(`Leben 40 → 35 \\(${MINUS}5\\)`));
+      await shot(page, 'historie-commander-leben');
+      await page.keyboard.press('Escape');
+      await page.locator('#btn-undo').tap();
+      assert.deepEqual([await valueOf(f0), await lifeOf(page, 0)], [0, 40], 'ein Rückgängig für beides');
+      assert.match(await page.locator('#toast').innerText(), new RegExp(`Rückgängig: Spieler 1: Schaden vom Commander von Spieler 3: 0 → 5 \\(\\+5\\), Leben 40 → 35 \\(${MINUS}5\\)`));
+    });
+
+    await test('die Option lässt sich wieder ausschalten: danach bleibt das Leben beim Commander-Schaden unberührt', async () => {
+      await closePanel(f0);
+      await setOption(false);
+      await sleep(BURST_MS + 60);
+      await openCommander(f0);
+      await f0.locator('.step-plus5').tap();
+      assert.deepEqual([await valueOf(f0), await lifeOf(page, 0)], [5, 40]);
+      await f0.locator('.step-minus5').tap();
+      await closePanel(f0);
+    });
+
+    await test('Neuladen: Werte je Commander, Leben, Markierung ab 21, Option und der gekoppelte Eintrag (Rückgängig nimmt beides zurück) bleiben erhalten', async () => {
+      await setOption(true);
+      await sleep(BURST_MS + 60);
+      await openCommander(f0);
+      await f0.locator('.step-plus5').tap(); // Commander von Spieler 3 is selected: 5, life 35
+      await closePanel(f0);
+      await sleep(BURST_MS + 60);
+      const f1 = field(page, 1);
+      await openCommander(f1);
+      for (let i = 0; i < 4; i++) await f1.locator('.step-plus5').tap();
+      await f1.locator('.step-plus').tap(); // from Spieler 1: 21, life 19
+      assert.deepEqual([await valueOf(f1), await lifeOf(page, 1)], [21, 19]);
+      await closePanel(f1);
+      await sleep(300);
+      await page.reload();
+      await page.waitForSelector('#game:not([hidden]) .field');
+      assert.deepEqual([await lifeOf(page, 0), await lifeOf(page, 1)], [35, 19]);
+      assert.equal(await f1.evaluate((el) => el.classList.contains('is-out')), true, '21 bleibt markiert');
+      await openCommander(f0);
+      assert.deepEqual((await tiles(f0).locator('.sel-val').allInnerTexts()).map(Number), [17, 5, 0]);
+      await closePanel(f0);
+      await openCommander(f1);
+      assert.deepEqual((await tiles(f1).locator('.sel-val').allInnerTexts()).map(Number), [21, 0, 0]);
+      await closePanel(f1);
+      await page.click('#btn-menu');
+      assert.equal(await page.isChecked('#opt-cmd-life'), true, 'die Option bleibt gespeichert');
+      await page.keyboard.press('Escape');
+      await page.locator('#btn-undo').tap();
+      assert.deepEqual([await lifeOf(page, 1), await f1.evaluate((el) => el.classList.contains('is-out'))], [40, false], 'nach dem Neuladen nimmt ein Rückgängig Schaden und Leben zurück');
+      await page.locator('#btn-undo').tap();
+      assert.equal(await lifeOf(page, 0), 40);
+    });
+
+    await test('Neues Spiel setzt Commander-Schaden und Historie zurück; die Option bleibt an', async () => {
+      await openCommander(f0);
+      assert.deepEqual((await tiles(f0).locator('.sel-val').allInnerTexts()).map(Number), [17, 0, 0]);
+      await closePanel(f0);
+      await page.click('#btn-menu');
+      await page.click('[data-action=new]');
+      await page.click('#confirm-ok');
+      await waitFor(async () => (await page.locator('.chip').count()) === 0, { message: 'Zähler zurückgesetzt' });
+      for (let seat = 0; seat < 4; seat++) {
+        await openCommander(field(page, seat));
+        assert.deepEqual((await tiles(field(page, seat)).locator('.sel-val').allInnerTexts()).map(Number), [0, 0, 0], `Sitz ${seat}`);
+        assert.equal(await lifeOf(page, seat), 40);
+        await closePanel(field(page, seat));
+      }
+      assert.equal(await page.isDisabled('#btn-undo'), true, 'Historie ist leer');
+      const game = await savedGame(page);
+      assert.ok(game.players.every((p) => p.cmd.every((v) => v === 0)) && game.history.length === 0);
+      await page.click('#btn-menu');
+      assert.equal(await page.isChecked('#opt-cmd-life'), true);
+      await page.keyboard.press('Escape');
+    });
+    await noProblems(problems);
+    await context.close();
+  });
+
+  // Fields with less than 320 px of height (5-6 players on most phones) have no room for the -5 / +5 buttons.
+  await group('Commander-Schaden bei 6 Spielern: keine ±5-Tasten, Halten zählt nach einer Sekunde in Fünferschritten', async () => {
+    const { context, page, problems } = await openApp(browser, server.url);
+    await startGame(page, 6);
+    const f = field(page, 0);
+    await f.locator('.toggle').tap();
+    await f.locator('.tab').nth(0).tap();
+
+    await test('die ±5-Tasten fehlen auf den kleinen Feldern, −/+ bleiben bedienbar', async () => {
+      assert.equal(await f.locator('.step-plus5').isVisible(), false);
+      assert.equal(await f.locator('.step-minus5').isVisible(), false);
+      const box = await f.locator('.step-plus').boundingBox();
+      assert.ok(box.width >= 47.5 && box.height >= 47.5, `${box.width}x${box.height}`);
+    });
+
+    await test('Halten (1,5 s) zählt erst einzeln, dann in Fünferschritten und ist ein einziger Historien-Eintrag', async () => {
+      const touch = await touchSession(page);
+      await touch.start(await centerOf(f.locator('.step-plus')));
+      await sleep(1500);
+      await touch.end();
+      const value = toNumber(await f.locator('.step-value').innerText());
+      assert.ok(value >= 15 && value <= 30, `nach 1,5 s Halten steht der Zähler bei ${value} (erwartet 15-30: ~7 Einzelschritte und ~3 Fünferschritte)`);
+      const game = await savedGame(page);
+      const entries = game.history.filter((e) => e.kind === 'cmd');
+      assert.equal(entries.length, 1);
+      assert.equal(entries[0].to - entries[0].from, value);
+    });
+    await noProblems(problems);
+    await context.close();
+  });
+
+  // ------------------------------------------------------------------------------------------
   await group('Historie und Rückgängig', async () => {
     const { context, page, problems } = await openApp(browser, server.url);
     await startGame(page, 3);
@@ -1021,7 +1291,7 @@ try {
       const oldest = await rows.nth(1).innerText();
       assert.match(newest, /\d\d:\d\d:\d\d/);
       assert.match(newest, /Spieler 2/);
-      assert.match(newest, /Commander-Schaden von Spieler 1/);
+      assert.match(newest, /Schaden vom Commander von Spieler 1/);
       assert.match(newest, /0 → 3 \(\+3\)/);
       assert.match(oldest, /Spieler 1/);
       assert.match(oldest, new RegExp(`Leben: 40 → 35 \\(${MINUS}5\\)`));
@@ -1646,7 +1916,7 @@ try {
       assert.deepEqual(await unnamed(), []);
       assert.equal(await field(page, 0).locator('.toggle').getAttribute('aria-expanded'), 'true');
       const chip = await field(page, 0).locator('.sel-row:not([hidden]) .sel').first().getAttribute('aria-label');
-      assert.match(chip, /^Commander-Schaden von Spieler 2: 0$/);
+      assert.match(chip, /^Schaden vom Commander von Spieler 2: 0$/);
       for (let seat = 0; seat < 4; seat++) await field(page, seat).locator('.tab').nth(1).tap();
       assert.deepEqual(await unnamed(), []);
       assert.equal(await field(page, 0).locator('.sel-row:not([hidden]) .sel').nth(3).getAttribute('aria-label'), 'Monarch');

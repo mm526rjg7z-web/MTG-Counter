@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DEFAULT_COLOR_ORDER, PALETTE, contrastRatio, pickFreeColor } from '../js/palette.js';
-import { MINUS, describeEntry, formatNumber, formatSigned, formatTime, summarizeEntry } from '../js/format.js';
-import { adjust, createGame, setMarker } from '../js/game.js';
+import { MINUS, commanderDamageLabel, describeEntry, formatNumber, formatSigned, formatTime, summarizeEntry } from '../js/format.js';
+import { adjust, createGame, setMarker, setName } from '../js/game.js';
 import { DEFAULT_SETTINGS, STORAGE_KEY, createSaver, getStorage, loadSaved, sanitizeSettings, save } from '../js/storage.js';
 
 // ---- palette ----------------------------------------------------------------------------------
@@ -56,12 +56,30 @@ test('describeEntry names players, sources and markers', () => {
   g = setMarker(g, 'monarch', 2, 3000);
   g = setMarker(g, 'monarch', null, 9000);
   const [life, cmd, crown, crownOff] = g.history.map((e) => describeEntry(e, g));
-  assert.deepEqual(life, { pid: 0, label: 'Leben', from: '40', to: '33', delta: -7, phrase: null });
-  assert.deepEqual(cmd, { pid: 1, label: 'Commander-Schaden von Spieler 3', from: '0', to: '5', delta: 5, phrase: null });
+  assert.deepEqual(life, { pid: 0, label: 'Leben', from: '40', to: '33', delta: -7, life: null, phrase: null });
+  assert.deepEqual(cmd, { pid: 1, label: 'Schaden vom Commander von Spieler 3', from: '0', to: '5', delta: 5, life: null, phrase: null });
   assert.deepEqual(crown, { pid: 2, label: 'Monarch', from: '–', to: 'Spieler 3', delta: null, phrase: 'Spieler 3 wird Monarch' });
   assert.deepEqual(crownOff, { pid: 2, label: 'Monarch', from: 'Spieler 3', to: '–', delta: null, phrase: 'Spieler 3 ist nicht mehr Monarch' });
   assert.equal(summarizeEntry(g.history[0], g), `Spieler 1: Leben 40 → 33 (${MINUS}7)`);
   assert.equal(summarizeEntry(g.history[2], g), 'Spieler 3 wird Monarch');
+  assert.equal(summarizeEntry(g.history[1], g), 'Spieler 2: Schaden vom Commander von Spieler 3: 0 → 5 (+5)');
+});
+
+test('commander damage is named after the commander\'s owner and follows a rename', () => {
+  assert.equal(commanderDamageLabel('Anna'), 'Schaden vom Commander von Anna');
+  let g = createGame({ playerCount: 3, startLife: 40 });
+  g = adjust(g, { pid: 1, kind: 'cmd', src: 2 }, 4, 1000);
+  assert.equal(describeEntry(g.history[0], g).label, 'Schaden vom Commander von Spieler 3');
+  g = setName(g, 2, 'Ben');
+  assert.equal(describeEntry(g.history[0], g).label, 'Schaden vom Commander von Ben', 'history rows use the current name');
+});
+
+test('a commander entry that also took life describes both changes', () => {
+  let g = createGame({ playerCount: 3, startLife: 40 });
+  g = adjust(g, { pid: 1, kind: 'cmd', src: 2 }, 3, 1000, { linkLife: true });
+  const d = describeEntry(g.history[0], g);
+  assert.deepEqual(d.life, { from: '40', to: '37', delta: -3 });
+  assert.equal(summarizeEntry(g.history[0], g), `Spieler 2: Schaden vom Commander von Spieler 3: 0 → 3 (+3), Leben 40 → 37 (${MINUS}3)`);
 });
 
 test('marker phrases cover gaining, losing and handing over', () => {
@@ -102,7 +120,8 @@ test('save and load round-trip settings and game', () => {
   const storage = fakeStorage();
   let game = createGame({ playerCount: 3, startLife: 30 });
   game = adjust(game, { pid: 1, kind: 'life' }, -4, 5000);
-  const settings = { playerCount: 3, startLife: 30, vibrate: false, keepAwake: false };
+  game = adjust(game, { pid: 0, kind: 'cmd', src: 1 }, 2, 9000, { linkLife: true });
+  const settings = { playerCount: 3, startLife: 30, vibrate: false, keepAwake: false, cmdLife: true };
   assert.equal(save(storage, { settings, game }), true);
   const loaded = loadSaved(storage);
   assert.deepEqual(loaded.settings, settings);
@@ -125,13 +144,16 @@ test('save reports failure instead of throwing when storage is full or blocked',
 });
 
 test('settings are sanitized', () => {
-  assert.deepEqual(sanitizeSettings({ playerCount: 99, startLife: -5, vibrate: 'yes', keepAwake: 0 }), {
+  assert.deepEqual(sanitizeSettings({ playerCount: 99, startLife: -5, vibrate: 'yes', keepAwake: 0, cmdLife: 'yes' }), {
     playerCount: 6,
     startLife: 1,
     vibrate: true,
     keepAwake: true,
+    cmdLife: false,
   });
+  assert.equal(sanitizeSettings({ cmdLife: true }).cmdLife, true);
   assert.deepEqual(sanitizeSettings(undefined), { ...DEFAULT_SETTINGS });
+  assert.equal(DEFAULT_SETTINGS.cmdLife, false, 'commander damage leaves life alone unless the player switches it on');
 });
 
 test('getStorage falls back to memory when localStorage is unavailable', () => {

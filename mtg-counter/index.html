@@ -155,6 +155,14 @@
           <button class="tile" type="button" data-action="settings"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-sliders"/></svg><span>Einstellungen</span></button>
           <button class="tile" type="button" data-action="help"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-help"/></svg><span>Hilfe / Über</span></button>
         </div>
+        <div class="menu-option">
+          <label class="switch">
+            <span>Commander-Schaden zieht auch Lebenspunkte ab</span>
+            <input id="opt-cmd-life" type="checkbox" role="switch" aria-describedby="cmd-life-hint">
+            <i aria-hidden="true"></i>
+          </label>
+          <p id="cmd-life-hint" class="hint">Wenn an, sind +3 Schaden auch −3 Leben. Rückgängig macht beides zusammen rückgängig.</p>
+        </div>
       </div>
     </div>
   </dialog>
@@ -254,6 +262,8 @@
         <h3>Zähler</h3>
         <ul>
           <li>Der Pfeil-Button am Feldrand öffnet <strong>Commander-Schaden</strong> (pro Gegner), <strong>Gift</strong>, <strong>Energie</strong>, <strong>Erfahrung</strong>, <strong>Monarch</strong> und <strong>Initiative</strong>.</li>
+          <li>Commander-Schaden zählt <strong>pro Commander</strong> und gehört zum Besitzer des Commanders („Schaden vom Commander von Anna“), egal wer ihn gerade steuert. Bei 21 steht „tödlich“, gezählt wird trotzdem weiter. Auf großen Feldern gibt es <strong>−5</strong> und <strong>+5</strong>, auf kleinen hilft Gedrückthalten (nach einer Sekunde in 5er-Schritten).</li>
+          <li>Im Menü lässt sich einschalten, dass Commander-Schaden auch <strong>Lebenspunkte abzieht</strong>. Rückgängig macht dann beides zusammen rückgängig.</li>
           <li>Zähler mit dem Wert 0 werden im geschlossenen Feld nicht angezeigt.</li>
           <li>Ausgeschieden ist, wer 0 oder weniger Leben hat, 10 Gift oder 21 Commander-Schaden von einem einzelnen Gegner. Ausgeschiedene Felder bleiben bedienbar, damit sich Fehler korrigieren lassen.</li>
         </ul>

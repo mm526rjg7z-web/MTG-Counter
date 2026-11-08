@@ -34,6 +34,12 @@ export const KIND_LABELS = {
   initiative: 'Initiative',
 };
 
+// The counter belongs to the commander, named after its owner, not to whoever controls it right now:
+// player A may take over B's commander and hit C with it, and C then counts damage "from B's commander".
+export function commanderDamageLabel(ownerName) {
+  return `Schaden vom Commander von ${ownerName}`;
+}
+
 // Why a player is out (short, used in the chip of an eliminated field).
 export const REASON_LABELS = {
   life: 'Leben',
@@ -51,8 +57,9 @@ function markerPhrase(entry, game) {
   return to !== null ? `${holder} \u00fcbernimmt die Initiative` : `${holder} verliert die Initiative`;
 }
 
-// Turns a history entry into display parts: { pid, label, from, to, delta, phrase }.
+// Turns a history entry into display parts: { pid, label, from, to, delta, life, phrase }.
 // Markers (monarch / initiative) have no numeric change: `delta` is null and `phrase` holds a sentence.
+// `life` is only set for commander damage that also changed the life total: { from, to, delta }.
 export function describeEntry(entry, game) {
   const nameOf = (id) => (id === null || id === undefined ? '\u2013' : game.players[id]?.name ?? '?');
   if (isMarkerKind(entry.kind)) {
@@ -66,14 +73,16 @@ export function describeEntry(entry, game) {
     };
   }
   const label = entry.kind === 'cmd'
-    ? `${KIND_LABELS.cmd} von ${nameOf(entry.src)}`
+    ? commanderDamageLabel(nameOf(entry.src))
     : KIND_LABELS[entry.kind];
+  const { life } = entry;
   return {
     pid: entry.pid,
     label,
     from: formatNumber(entry.from),
     to: formatNumber(entry.to),
     delta: entry.to - entry.from,
+    life: life ? { from: formatNumber(life.from), to: formatNumber(life.to), delta: life.to - life.from } : null,
     phrase: null,
   };
 }
@@ -83,5 +92,8 @@ export function summarizeEntry(entry, game) {
   const d = describeEntry(entry, game);
   if (d.phrase !== null) return d.phrase;
   const who = game.players[d.pid]?.name ?? '?';
-  return `${who}: ${d.label} ${d.from} \u2192 ${d.to} (${formatSigned(d.delta)})`;
+  // A commander label ends in a player name, which may end in a digit: the colon keeps it apart from the numbers.
+  const sep = entry.kind === 'cmd' ? ': ' : ' ';
+  const life = d.life ? `, Leben ${d.life.from} \u2192 ${d.life.to} (${formatSigned(d.life.delta)})` : '';
+  return `${who}: ${d.label}${sep}${d.from} \u2192 ${d.to} (${formatSigned(d.delta)})${life}`;
 }
