@@ -1658,7 +1658,7 @@ try {
     await test('Menü: alle Einträge sind erreichbar', async () => {
       await page.click('#btn-menu');
       const labels = await page.locator('#dlg-menu .tile span').allInnerTexts();
-      assert.deepEqual(labels, ['Würfel', 'Münzwurf', 'Startspieler', 'Rückgängig', 'Historie', 'Neues Spiel', 'Einstellungen', 'Hilfe / Über']);
+      assert.deepEqual(labels, ['Würfel', 'Münzwurf', 'Startspieler', 'Rückgängig', 'Historie', 'Neues Spiel', 'Zur Startseite', 'Hilfe / Über']);
       await shot(page, 'menue');
       await page.keyboard.press('Escape');
     });
@@ -1801,7 +1801,7 @@ try {
   });
 
   // ------------------------------------------------------------------------------------------
-  await group('Neues Spiel und Einstellungen', async () => {
+  await group('Neues Spiel und Startseite', async () => {
     const { context, page, problems } = await openApp(browser, server.url);
     await startGame(page, 4);
     await field(page, 2).locator('.name').tap();
@@ -1811,6 +1811,32 @@ try {
     await field(page, 1).locator('.toggle').tap();
     for (let i = 0; i < 3; i++) await field(page, 1).locator('.step-plus').click();
     await field(page, 1).locator('.tab-close').tap();
+
+    await test('Menü: „Zur Startseite“ trägt ein Haus-Symbol im Stil der anderen Kacheln und führt zur Startseite', async () => {
+      await page.click('#btn-menu');
+      const look = (selector) => page.evaluate((sel) => {
+        const svg = document.querySelector(`${sel} svg`);
+        const symbol = document.querySelector(svg.querySelector('use').getAttribute('href'));
+        const style = getComputedStyle(svg);
+        return {
+          size: [style.width, style.height],
+          color: style.color,
+          symbol: ['viewBox', 'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin'].map((name) => symbol.getAttribute(name)),
+        };
+      }, selector);
+      const tile = page.locator('#dlg-menu [data-action=settings]');
+      assert.equal((await tile.innerText()).trim(), 'Zur Startseite');
+      assert.equal(await tile.locator('use').getAttribute('href'), '#i-home');
+      const home = await look('#dlg-menu [data-action=settings]');
+      for (const other of ['history', 'dice', 'coin', 'starter', 'help']) {
+        assert.deepEqual(home, await look(`#dlg-menu [data-action=${other}]`), `Haus-Symbol und Symbol „${other}“ haben dieselbe Größe, Farbe und Strichart`);
+      }
+      await shot(page, 'menue-startseite');
+      await tile.click();
+      assert.equal(await page.isVisible('#setup'), true, 'führt wie bisher zur Startseite');
+      await page.click('#btn-setup-cancel');
+      assert.equal(await page.isHidden('#setup'), true);
+    });
 
     await test('Neues Spiel verlangt eine Bestätigung; Abbrechen ändert nichts', async () => {
       await page.click('#btn-menu');
@@ -1837,7 +1863,7 @@ try {
       assert.equal(await page.locator('.field').count(), 4);
     });
 
-    await test('Einstellungen: andere Spielerzahl und anderes Startleben starten ein neues Spiel (mit Bestätigung)', async () => {
+    await test('Zur Startseite: andere Spielerzahl und anderes Startleben starten ein neues Spiel (mit Bestätigung)', async () => {
       await page.click('#btn-menu');
       await page.click('[data-action=settings]');
       assert.equal(await page.isVisible('#setup'), true);
@@ -1889,7 +1915,7 @@ try {
       assert.ok(calls.length >= 2, `${calls.length} Vibrationsaufrufe`);
       assert.ok(calls.every((c) => (Array.isArray(c) ? c : [c]).every((ms) => ms <= 100)), 'nur kurze Impulse');
     });
-    await test('in den Einstellungen abschaltbar', async () => {
+    await test('auf der Startseite abschaltbar', async () => {
       await page.click('#btn-menu');
       await page.click('[data-action=settings]');
       await page.click('#opt-vibrate', { force: true });
@@ -1966,7 +1992,7 @@ try {
       // lock is still held (sentinel alive), so no second request is needed
       assert.equal(await page.evaluate(() => window.__wakeLock.requests), before);
     });
-    await test('in den Einstellungen abschaltbar und wieder einschaltbar', async () => {
+    await test('auf der Startseite abschaltbar und wieder einschaltbar', async () => {
       await page.click('#btn-menu');
       await page.click('[data-action=settings]');
       await page.click('#opt-awake', { force: true });

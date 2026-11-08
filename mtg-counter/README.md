@@ -40,7 +40,7 @@ Bedienbarkeit geht vor Funktionsumfang.
 - „Rückgängig“ (Dock, Menü, Historie) macht die jeweils letzte Aktion rückgängig, beliebig oft. Commander-Schaden, der auch Leben abzieht, steht als ein Eintrag („Schaden vom Commander von Ben: 0 → 3 (+3) · Leben 40 → 37 (−3)“) und wird mit einem Rückgängig ganz zurückgenommen.
 
 **Spielverwaltung**
-- Menü: Neues Spiel (mit Bestätigung, behält Spielerzahl, Startleben, Namen, Farben und Optionen, setzt Leben, Zähler, Commander-Schaden und Historie zurück), Einstellungen, Historie, Hilfe/Über und der Schalter für Commander-Schaden und Leben.
+- Menü: Neues Spiel (mit Bestätigung, behält Spielerzahl, Startleben, Namen, Farben und Optionen, setzt Leben, Zähler, Commander-Schaden und Historie zurück), Zur Startseite (Spielerzahl, Startleben, Optionen), Historie, Hilfe/Über und der Schalter für Commander-Schaden und Leben.
 - Der Spielstand wird laufend im `localStorage` gespeichert und beim Öffnen wiederhergestellt.
 - Bildschirm bleibt während des Spiels an (Screen Wake Lock API, abschaltbar, mit Hinweis statt Fehler, wenn nicht unterstützt).
 - Kurzes haptisches Feedback (`navigator.vibrate`), abschaltbar.
@@ -125,7 +125,7 @@ Vergisst man das, schlägt `npm test` fehl. Beim nächsten Start installiert der
 
 **iPhone/iPad (Safari)**: Seite öffnen, Teilen-Symbol → *Zum Home-Bildschirm* → *Hinzufügen*. Ab iOS 16.4 geht das auch in anderen Browsern (Chrome, Edge, Firefox) über deren Teilen-Menü.
 
-Hinweise zu iOS: Die Statusleiste ist deckend (`black`), die Seite beginnt darunter. `navigator.vibrate` wird von iOS nicht unterstützt (die App erklärt das in den Einstellungen). Der Screen Wake Lock funktionierte in Home-Bildschirm-Apps wegen eines WebKit-Fehlers erst ab **iOS 18.4** ([WebKit-Bug 254545](https://bugs.webkit.org/show_bug.cgi?id=254545)). Auf älteren Versionen die automatische Sperre in den iOS-Einstellungen auf „Nie“ stellen.
+Hinweise zu iOS: Die Statusleiste ist deckend (`black`), die Seite beginnt darunter. `navigator.vibrate` wird von iOS nicht unterstützt (die App erklärt das auf der Startseite). Der Screen Wake Lock funktionierte in Home-Bildschirm-Apps wegen eines WebKit-Fehlers erst ab **iOS 18.4** ([WebKit-Bug 254545](https://bugs.webkit.org/show_bug.cgi?id=254545)). Auf älteren Versionen die automatische Sperre in den iOS-Einstellungen auf „Nie“ stellen.
 
 Browser-Voraussetzungen: Container Queries, `color-mix()` und das `<dialog>`-Element, also etwa Chrome/Edge 111, Safari/iOS 16.2, Firefox 113 oder neuer. In älteren Browsern zeigt die App einen Hinweis statt eines kaputten Layouts.
 
