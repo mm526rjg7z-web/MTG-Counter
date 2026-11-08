@@ -7,7 +7,7 @@
 // generated block is out of date, so a forgotten update cannot reach users unnoticed.)
 
 const CACHE_PREFIX = 'mtg-counter-';
-const CACHE_VERSION = 'd7466143ae';
+const CACHE_VERSION = 'bd9e61d569';
 const CACHE_NAME = `${CACHE_PREFIX}${CACHE_VERSION}`;
 const ASSETS = [
   './',

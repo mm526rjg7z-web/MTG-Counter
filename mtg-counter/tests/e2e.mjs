@@ -651,6 +651,7 @@ try {
       const text = await page.textContent('#icon-notice');
       assert.match(text, /löschen/);
       assert.match(text, /Zum Home-Bildschirm/);
+      assert.match(text, /Verlauf/, 'der Hinweis nennt die sichtbaren Folgen, damit man sie wiedererkennt');
       assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById('icon-notice')).pointerEvents), 'none');
       await shot(page, 'iphone-altes-symbol');
       await page.click('#btn-start');
