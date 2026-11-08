@@ -10,8 +10,9 @@
 //     nextEntryId
 //   }
 // Commander damage is keyed by the seat of the commander's OWNER (`src`), not by whoever controls it
-// right now: players[recipient].cmd[owner]. A partner commander would need a second array of the same
-// shape and a slot in the history entries (see README, "Commander-Schaden").
+// right now: players[recipient].cmd[owner]. The recipient's own seat is a source as well: it counts the damage
+// a player took from his own commander while an opponent controlled it. A partner commander would need a
+// second array of the same shape and a slot in the history entries (see README, "Commander-Schaden").
 // Marker entries (monarch / initiative) carry no `pid`; `from` / `to` are holder ids or null.
 // A commander entry made while "Commander-Schaden zieht auch Leben ab" is on carries `life: { from, to }`,
 // the recipient's life before and after the same change, so one undo reverts both.
@@ -114,7 +115,7 @@ function isValidTarget(game, target) {
   const { pid, kind, src } = target ?? {};
   if (!VALUE_KINDS.includes(kind) || !game.players[pid]) return false;
   if (kind !== 'cmd') return true;
-  return Number.isInteger(src) && src !== pid && Boolean(game.players[src]);
+  return Number.isInteger(src) && Boolean(game.players[src]);
 }
 
 export function getValue(game, target) {
@@ -331,7 +332,7 @@ function restoreEntry(raw, count) {
   if (!VALUE_KINDS.includes(kind) || !Number.isInteger(pid) || pid < 0 || pid >= count) return null;
   if (!Number.isInteger(from) || !Number.isInteger(to)) return null;
   if (kind === 'cmd') {
-    if (!Number.isInteger(src) || src < 0 || src >= count || src === pid) return null;
+    if (!Number.isInteger(src) || src < 0 || src >= count) return null;
     const life = restoreLifePart(raw.life);
     return life ? { id, t, kind, pid, src, from, to, life } : { id, t, kind, pid, src, from, to };
   }
@@ -357,8 +358,7 @@ export function restoreGame(raw) {
       poison: toInt(p.poison, 0, 0, COUNTER_MAX),
       energy: toInt(p.energy, 0, 0, COUNTER_MAX),
       experience: toInt(p.experience, 0, 0, COUNTER_MAX),
-      cmd: Array.from({ length: count }, (_, s) =>
-        s === i ? 0 : toInt(Array.isArray(p.cmd) ? p.cmd[s] : 0, 0, 0, COUNTER_MAX)),
+      cmd: Array.from({ length: count }, (_, s) => toInt(Array.isArray(p.cmd) ? p.cmd[s] : 0, 0, 0, COUNTER_MAX)),
     });
   }
   const history = (Array.isArray(raw.history) ? raw.history : [])

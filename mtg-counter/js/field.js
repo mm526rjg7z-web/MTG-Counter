@@ -34,6 +34,9 @@ export function createField({ cell, playerCount, api }) {
 
   const lifeTarget = { pid: seat, kind: 'life' };
   const opponents = Array.from({ length: playerCount }, (_, i) => i).filter((i) => i !== seat);
+  // Where commander damage can come from, in the order of the selector tiles: the opponents' commanders, then the
+  // own one, which an opponent may have taken over and used against its owner.
+  const sources = [...opponents, seat];
 
   // ---- main view ------------------------------------------------------------------------------
   const zoneMinus = h('button', { class: 'zone zone-minus', type: 'button' });
@@ -55,12 +58,12 @@ export function createField({ cell, playerCount, api }) {
 
   // ---- counter panel --------------------------------------------------------------------------
   const cmdSelectors = new Map(); // source seat -> { btn, val }
-  const cmdRow = h('div', { class: 'sel-row', role: 'group', 'aria-label': 'Commander wählen' });
-  for (const src of opponents) {
+  const cmdRow = h('div', { class: 'sel-row sel-row-cmd', role: 'group', 'aria-label': 'Commander wählen' });
+  for (const src of sources) {
     const dot = h('span', { class: 'dot' });
     const val = h('span', { class: 'sel-val' }, '0');
     const btn = h('button', {
-      class: 'sel',
+      class: src === seat ? 'sel sel-self' : 'sel',
       type: 'button',
       'aria-pressed': 'false',
       onclick: () => {
@@ -170,13 +173,13 @@ export function createField({ cell, playerCount, api }) {
     if (!game || !ui.open) return;
     const p = game.players[seat];
     const onCmd = ui.page === 'cmd';
-    cmdRow.hidden = !onCmd || opponents.length === 1; // a single opponent needs no selector
+    cmdRow.hidden = !onCmd;
     miscRow.hidden = onCmd;
     tabCmd.setAttribute('aria-pressed', String(onCmd));
     tabMisc.setAttribute('aria-pressed', String(!onCmd));
     setAttr(panel, 'aria-label', `Zähler von ${p.name}`);
 
-    if (ui.cmdSrc === null || ui.cmdSrc === seat) ui.cmdSrc = opponents[0];
+    if (ui.cmdSrc === null) ui.cmdSrc = opponents[0];
 
     for (const [src, c] of cmdSelectors) {
       const source = game.players[src];
@@ -185,7 +188,7 @@ export function createField({ cell, playerCount, api }) {
       setText(c.val, String(value));
       c.btn.setAttribute('aria-pressed', String(src === ui.cmdSrc));
       c.btn.classList.toggle('is-lethal', value >= COMMANDER_LETHAL);
-      const tileLabel = `${commanderDamageLabel(source.name)}: ${value}${value >= COMMANDER_LETHAL ? ' (tödlich)' : ''}`;
+      const tileLabel = `${commanderDamageLabel(source.name, src === seat)}: ${value}${value >= COMMANDER_LETHAL ? ' (tödlich)' : ''}`;
       setAttr(c.btn, 'aria-label', tileLabel);
       setAttr(c.btn, 'title', tileLabel);
     }
@@ -211,8 +214,9 @@ export function createField({ cell, playerCount, api }) {
     let lethal = false;
     if (onCmd) {
       const source = game.players[ui.cmdSrc];
-      label = commanderDamageLabel(source.name);
-      shortLabel = `Commander von ${source.name}`;
+      const own = ui.cmdSrc === seat;
+      label = commanderDamageLabel(source.name, own);
+      shortLabel = own ? 'Eigener Commander' : `Commander von ${source.name}`;
       value = p.cmd[ui.cmdSrc];
       lethal = value >= COMMANDER_LETHAL;
       hint = lethal ? 'tödlich' : `ab ${COMMANDER_LETHAL} tödlich`;
@@ -248,7 +252,7 @@ export function createField({ cell, playerCount, api }) {
     if (reasons.length > 0) {
       chips.push({ key: 'out', cls: 'chip chip-out', icon: 'skull', text: reasons.map((r) => REASON_LABELS[r]).join(' · '), label: `Ausgeschieden: ${reasons.map((r) => REASON_LABELS[r]).join(', ')}` });
     }
-    for (const src of opponents) {
+    for (const src of sources) {
       const value = p.cmd[src];
       if (value <= 0) continue;
       const source = game.players[src];
@@ -258,7 +262,7 @@ export function createField({ cell, playerCount, api }) {
         icon: 'shield',
         iconColor: getColor(source.color).bg,
         text: String(value),
-        label: `${commanderDamageLabel(source.name)}: ${value}${value >= COMMANDER_LETHAL ? ' (tödlich)' : ''}`,
+        label: `${commanderDamageLabel(source.name, src === seat)}: ${value}${value >= COMMANDER_LETHAL ? ' (tödlich)' : ''}`,
       });
     }
     for (const counter of MISC_COUNTERS) {

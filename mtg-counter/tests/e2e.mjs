@@ -386,9 +386,11 @@ try {
             // 360-375 px phone). Every other panel button keeps 48 px.
             const dense = p.frameSize.w < 260 && p.frameSize.h <= 262;
             const tiny = p.frameSize.h <= 190 && p.frameSize.w < 250;
+            // six selector tiles (6 players: five opponents and the own commander) share the width of a sideways field
+            const crowded = p.frameSize.w > p.frameSize.h && p.buttons.filter((x) => x.chip).length >= 6;
             for (const b of p.buttons) {
               assert.ok(b.x >= p.rect.x - 1 && b.y >= p.rect.y - 1 && b.x + b.w <= p.rect.x + p.rect.w + 1 && b.y + b.h <= p.rect.y + p.rect.h + 1, `Sitz ${p.seat}: Button ragt aus dem Panel`);
-              const minimum = b.chip && (dense || tiny) ? 38 : 47.5;
+              const minimum = b.chip && crowded ? 30 : b.chip && (dense || tiny) ? 38 : 47.5;
               assert.ok(Math.min(b.w, b.h) >= minimum && Math.max(b.w, b.h) >= 47.5, `Sitz ${p.seat}: Panel-Button ${b.w.toFixed(1)}x${b.h.toFixed(1)} zu klein`);
               assert.ok(!rectsOverlap(p.dock, b), `Sitz ${p.seat}: Dock überdeckt einen Panel-Button`);
             }
@@ -459,9 +461,11 @@ try {
         const buttons = [...panel.querySelectorAll('button:not([hidden])')]
           .filter((b) => b.getClientRects().length > 0 && !b.closest('[hidden]'))
           .map((b) => ({ ...box(b), chip: b.classList.contains('sel') }));
+        // six selector tiles (6 players: five opponents and the own commander) share the width of a sideways field
+        const crowded = frame.w > frame.h && buttons.filter((b) => b.chip).length >= 6;
         buttons.forEach((a, i) => {
           if (a.x < bounds.x - 1 || a.y < bounds.y - 1 || a.x + a.w > bounds.x + bounds.w + 1 || a.y + a.h > bounds.y + bounds.h + 1) found.push(`${where}: Panel-Button ${i} ragt aus dem Panel`);
-          const minimum = a.chip && (dense || tiny) ? 38 : 47.5;
+          const minimum = a.chip && crowded ? 30 : a.chip && (dense || tiny) ? 38 : 47.5;
           if (Math.min(a.w, a.h) < minimum || Math.max(a.w, a.h) < 47.5) found.push(`${where}: Panel-Button ${i} nur ${a.w.toFixed(1)}x${a.h.toFixed(1)}`);
           if (overlap(dock, a)) found.push(`${where}: Dock überdeckt Panel-Button ${i}`);
           buttons.forEach((b, j) => {
@@ -883,13 +887,13 @@ try {
       const f1 = field(page, 1);
       await f1.locator('.toggle').tap();
       const chips = f1.locator('.sel-row:not([hidden]) .sel');
-      assert.equal(await chips.count(), 3, 'drei Gegner');
+      assert.equal(await chips.count(), 4, 'drei Gegner und der eigene Commander');
       for (let i = 0; i < 12; i++) await f1.locator('.step-plus').click(); // from first opponent
       await chips.nth(1).tap();
       for (let i = 0; i < 12; i++) await f1.locator('.step-plus').click(); // from second opponent
       assert.equal(await f1.evaluate((el) => el.classList.contains('is-out')), false);
       const values = await chips.locator('.sel-val').allInnerTexts();
-      assert.deepEqual(values, ['12', '12', '0']);
+      assert.deepEqual(values, ['12', '12', '0', '0']);
       await f1.locator('.tab-close').tap();
     });
 
@@ -980,7 +984,7 @@ try {
 
     await test('der Zähler-Button öffnet „Commander“: eine Kachel je Gegner in dessen Farbe, die Beschriftung nennt den Besitzer des Commanders', async () => {
       await openCommander(f0);
-      assert.equal(await tiles(f0).count(), 3, 'drei Gegner');
+      assert.equal(await tiles(f0).count(), 4, 'drei Gegner und der eigene Commander (letzte Kachel)');
       const colors = await page.evaluate(() => {
         const normalize = (value) => {
           const probe = document.createElement('i');
@@ -991,10 +995,10 @@ try {
           return rgb;
         };
         const dots = [...document.querySelectorAll('.field[data-seat="0"] .sel-row:not([hidden]) .dot')].map((dot) => getComputedStyle(dot).backgroundColor);
-        const owners = [1, 2, 3].map((seat) => normalize(document.querySelector(`.field[data-seat="${seat}"]`).style.getPropertyValue('--pc-bg')));
+        const owners = [1, 2, 3, 0].map((seat) => normalize(document.querySelector(`.field[data-seat="${seat}"]`).style.getPropertyValue('--pc-bg')));
         return { dots, owners };
       });
-      assert.deepEqual(colors.dots, colors.owners, 'die Kacheln tragen die Farben der Gegner');
+      assert.deepEqual(colors.dots, colors.owners, 'die Kacheln tragen die Farben der Gegner, die letzte die eigene');
       assert.equal(await f0.locator('.lbl-long').textContent(), 'Schaden vom Commander von Spieler 2');
       assert.equal(await f0.locator('.lbl-short').textContent(), 'Commander von Spieler 2');
       assert.equal(await f0.locator('.step-plus').getAttribute('aria-label'), 'Schaden vom Commander von Spieler 2 erhöhen');
@@ -1155,10 +1159,10 @@ try {
       assert.deepEqual([await lifeOf(page, 0), await lifeOf(page, 1)], [35, 19]);
       assert.equal(await f1.evaluate((el) => el.classList.contains('is-out')), true, '21 bleibt markiert');
       await openCommander(f0);
-      assert.deepEqual((await tiles(f0).locator('.sel-val').allInnerTexts()).map(Number), [17, 5, 0]);
+      assert.deepEqual((await tiles(f0).locator('.sel-val').allInnerTexts()).map(Number), [17, 5, 0, 0]);
       await closePanel(f0);
       await openCommander(f1);
-      assert.deepEqual((await tiles(f1).locator('.sel-val').allInnerTexts()).map(Number), [21, 0, 0]);
+      assert.deepEqual((await tiles(f1).locator('.sel-val').allInnerTexts()).map(Number), [21, 0, 0, 0]);
       await closePanel(f1);
       await page.click('#btn-menu');
       assert.equal(await page.isChecked('#opt-cmd-life'), true, 'die Option bleibt gespeichert');
@@ -1171,7 +1175,7 @@ try {
 
     await test('Neues Spiel setzt Commander-Schaden und Historie zurück; die Option bleibt an', async () => {
       await openCommander(f0);
-      assert.deepEqual((await tiles(f0).locator('.sel-val').allInnerTexts()).map(Number), [17, 0, 0]);
+      assert.deepEqual((await tiles(f0).locator('.sel-val').allInnerTexts()).map(Number), [17, 0, 0, 0]);
       await closePanel(f0);
       await page.click('#btn-menu');
       await page.click('[data-action=new]');
@@ -1179,7 +1183,7 @@ try {
       await waitFor(async () => (await page.locator('.chip').count()) === 0, { message: 'Zähler zurückgesetzt' });
       for (let seat = 0; seat < 4; seat++) {
         await openCommander(field(page, seat));
-        assert.deepEqual((await tiles(field(page, seat)).locator('.sel-val').allInnerTexts()).map(Number), [0, 0, 0], `Sitz ${seat}`);
+        assert.deepEqual((await tiles(field(page, seat)).locator('.sel-val').allInnerTexts()).map(Number), [0, 0, 0, 0], `Sitz ${seat}`);
         assert.equal(await lifeOf(page, seat), 40);
         await closePanel(field(page, seat));
       }
@@ -1223,6 +1227,167 @@ try {
     });
     await noProblems(problems);
     await context.close();
+  });
+
+  // A player can also take damage from his own commander: an opponent takes it over and attacks the owner with it.
+  // That is a source of its own, the last tile of the selector (dashed outline, in the colour of the field).
+  await group('Commander-Schaden: der eigene Commander (ein Gegner übernimmt ihn und trifft damit den Besitzer)', async () => {
+    const { context, page, problems } = await openApp(browser, server.url);
+    await startGame(page, 4);
+    const f0 = field(page, 0);
+    const tiles = (f) => f.locator('.sel-row:not([hidden]) .sel');
+    const valueOf = async (f) => toNumber(await f.locator('.step-value').innerText());
+    const tileValues = async (f) => (await tiles(f).locator('.sel-val').allInnerTexts()).map(Number);
+    const isOut = (f) => f.evaluate((el) => el.classList.contains('is-out'));
+    const setOption = async (on) => {
+      await page.click('#btn-menu');
+      if ((await page.isChecked('#opt-cmd-life')) !== on) await page.click('#opt-cmd-life', { force: true });
+      await page.keyboard.press('Escape');
+    };
+    await f0.locator('.toggle').tap();
+    await f0.locator('.tab').nth(0).tap();
+    const own = tiles(f0).last();
+
+    await test('die letzte Kachel ist der eigene Commander: gestrichelt, in der Farbe des eigenen Feldes, mit eigener Beschriftung', async () => {
+      assert.equal(await tiles(f0).count(), 4, 'drei Gegner und der eigene Commander');
+      assert.equal(await own.getAttribute('aria-label'), 'Schaden vom eigenen Commander: 0');
+      assert.equal(await own.evaluate((el) => getComputedStyle(el).borderTopStyle), 'dashed');
+      assert.equal(await tiles(f0).first().evaluate((el) => getComputedStyle(el).borderTopStyle), 'solid');
+      const sameColor = await f0.evaluate((el) => {
+        const probe = document.createElement('i');
+        probe.style.background = el.style.getPropertyValue('--pc-bg');
+        document.body.append(probe);
+        const mine = getComputedStyle(probe).backgroundColor;
+        probe.remove();
+        return getComputedStyle(el.querySelector('.sel-self .dot')).backgroundColor === mine;
+      });
+      assert.equal(sameColor, true, 'der Punkt hat die Farbe des eigenen Feldes');
+      await own.tap();
+      assert.equal(await own.getAttribute('aria-pressed'), 'true');
+      assert.equal(await own.evaluate((el) => getComputedStyle(el).borderTopStyle), 'solid', 'ausgewählt wie die anderen Kacheln');
+      assert.equal(await f0.locator('.lbl-long').textContent(), 'Schaden vom eigenen Commander');
+      assert.equal(await f0.locator('.lbl-short').textContent(), 'Eigener Commander');
+      assert.equal(await f0.locator('.step-plus').getAttribute('aria-label'), 'Schaden vom eigenen Commander erhöhen');
+      await shot(page, 'commander-schaden-eigener');
+    });
+
+    await test('er zählt getrennt von allen anderen: 12 vom eigenen und 12 von einem Gegner sind noch keine 21 von einem Commander', async () => {
+      for (let i = 0; i < 2; i++) await f0.locator('.step-plus5').tap();
+      for (let i = 0; i < 2; i++) await f0.locator('.step-plus').tap();
+      assert.equal(await valueOf(f0), 12);
+      await tiles(f0).first().tap();
+      for (let i = 0; i < 2; i++) await f0.locator('.step-plus5').tap();
+      for (let i = 0; i < 2; i++) await f0.locator('.step-plus').tap();
+      assert.deepEqual(await tileValues(f0), [12, 0, 0, 12]);
+      assert.equal(await isOut(f0), false);
+      for (const seat of [1, 2, 3]) assert.equal(await isOut(field(page, seat)), false, 'andere Spieler bleiben unberührt');
+      await own.tap();
+    });
+
+    await test('ab 21 ist er tödlich wie jeder andere: rot, „tödlich“, Feld markiert, weiterzählen bleibt möglich', async () => {
+      await f0.locator('.step-plus5').tap();
+      for (let i = 0; i < 4; i++) await f0.locator('.step-plus').tap();
+      assert.equal(await valueOf(f0), 21);
+      assert.equal(await f0.locator('.stepper').evaluate((el) => el.classList.contains('is-lethal')), true);
+      assert.equal(await f0.locator('.step-hint').textContent(), 'tödlich');
+      assert.equal(await own.evaluate((el) => getComputedStyle(el).backgroundColor), 'rgb(179, 0, 27)');
+      assert.equal(await isOut(f0), true);
+      await f0.locator('.tab-close').tap();
+      assert.match(await f0.locator('.chips').innerText(), /Commander/);
+      assert.match(await f0.locator('.chips').getAttribute('aria-label'), /Schaden vom eigenen Commander: 21 \(tödlich\)/);
+      await f0.locator('.toggle').tap();
+      await f0.locator('.step-plus').tap();
+      assert.equal(await valueOf(f0), 22, 'weiterzählen bleibt möglich');
+      await f0.locator('.step-minus5').tap();
+      assert.equal(await valueOf(f0), 17);
+      assert.equal(await isOut(f0), false);
+    });
+
+    await test('die Historie nennt ihn „Schaden vom eigenen Commander“, Rückgängig nimmt die Änderung zurück', async () => {
+      await sleep(BURST_MS + 60);
+      await f0.locator('.step-plus5').tap();
+      assert.equal(await valueOf(f0), 22);
+      await page.click('#btn-menu');
+      await page.click('[data-action=history]');
+      const newest = await page.locator('#log-list .log-row').first().innerText();
+      assert.match(newest, /Spieler 1/);
+      assert.match(newest, /Schaden vom eigenen Commander/);
+      assert.match(newest, /17 → 22 \(\+5\)/);
+      await page.keyboard.press('Escape');
+      await page.locator('#btn-undo').tap();
+      assert.equal(await valueOf(f0), 17);
+      assert.match(await page.locator('#toast').innerText(), /^Rückgängig: Spieler 1: Schaden vom eigenen Commander: 17 → 22 \(\+5\)$/);
+    });
+
+    await test('mit der Option zieht auch der eigene Commander Leben ab, ein Rückgängig nimmt beides zurück', async () => {
+      await f0.locator('.tab-close').tap();
+      await setOption(true);
+      await sleep(BURST_MS + 60);
+      await f0.locator('.toggle').tap();
+      await f0.locator('.step-plus5').tap();
+      assert.deepEqual([await valueOf(f0), await lifeOf(page, 0)], [22, 35]);
+      await page.locator('#btn-undo').tap();
+      assert.deepEqual([await valueOf(f0), await lifeOf(page, 0)], [17, 40]);
+    });
+
+    await test('Neuladen: Wert, Markierung ab 21 und der gekoppelte Eintrag des eigenen Commanders bleiben erhalten', async () => {
+      await sleep(BURST_MS + 60);
+      for (let i = 0; i < 4; i++) await f0.locator('.step-plus').tap(); // 21, life 36
+      assert.deepEqual([await valueOf(f0), await lifeOf(page, 0), await isOut(f0)], [21, 36, true]);
+      await sleep(300);
+      await page.reload();
+      await page.waitForSelector('#game:not([hidden]) .field');
+      assert.deepEqual([await lifeOf(page, 0), await isOut(f0)], [36, true]);
+      await f0.locator('.toggle').tap();
+      assert.deepEqual(await tileValues(f0), [12, 0, 0, 21]);
+      const game = await savedGame(page);
+      assert.deepEqual(game.players[0].cmd, [21, 12, 0, 0], 'gespeichert als cmd[Empfänger][Besitzer] mit dem eigenen Platz');
+      await page.locator('#btn-undo').tap();
+      assert.deepEqual([await lifeOf(page, 0), await isOut(f0)], [40, false], 'ein Rückgängig nach dem Neuladen nimmt Schaden und Leben zurück');
+      await f0.locator('.tab-close').tap();
+    });
+    await noProblems(problems);
+    await context.close();
+  });
+
+  await group('Commander-Schaden: der eigene Commander bei 2 und bei 6 Spielern', async () => {
+    const { context, page, problems } = await openApp(browser, server.url);
+    await startGame(page, 2);
+    const tiles = (f) => f.locator('.sel-row:not([hidden]) .sel');
+
+    await test('2 Spieler: die Kachelreihe zeigt den Gegner und den eigenen Commander, beide zählen getrennt', async () => {
+      const f = field(page, 0);
+      await f.locator('.toggle').tap();
+      await f.locator('.tab').nth(0).tap();
+      assert.equal(await tiles(f).count(), 2);
+      await f.locator('.step-plus').tap();
+      await tiles(f).last().tap();
+      assert.equal(await f.locator('.lbl-long').textContent(), 'Schaden vom eigenen Commander');
+      for (let i = 0; i < 2; i++) await f.locator('.step-plus5').tap();
+      assert.deepEqual((await tiles(f).locator('.sel-val').allInnerTexts()).map(Number), [1, 10]);
+      await f.locator('.tab-close').tap();
+      assert.equal(await page.isDisabled('#btn-undo'), false);
+    });
+    await noProblems(problems);
+    await context.close();
+
+    const six = await openApp(browser, server.url);
+    await startGame(six.page, 6);
+    await test('6 Spieler: alle sechs Kacheln sind in jedem Feld antippbar, auch in den seitlich gedrehten', async () => {
+      for (let seat = 0; seat < 6; seat++) {
+        const f = field(six.page, seat);
+        await f.locator('.toggle').tap();
+        await f.locator('.tab').nth(0).tap();
+        assert.equal(await tiles(f).count(), 6, `Sitz ${seat}`);
+        await tiles(f).last().tap();
+        await f.locator('.step-plus').tap();
+        assert.deepEqual((await tiles(f).locator('.sel-val').allInnerTexts()).map(Number), [0, 0, 0, 0, 0, 1], `Sitz ${seat}`);
+        await f.locator('.tab-close').tap();
+      }
+      await shot(six.page, 'commander-schaden-eigener-6');
+    });
+    await noProblems(six.problems);
+    await six.context.close();
   });
 
   // ------------------------------------------------------------------------------------------
@@ -1917,6 +2082,7 @@ try {
       assert.equal(await field(page, 0).locator('.toggle').getAttribute('aria-expanded'), 'true');
       const chip = await field(page, 0).locator('.sel-row:not([hidden]) .sel').first().getAttribute('aria-label');
       assert.match(chip, /^Schaden vom Commander von Spieler 2: 0$/);
+      assert.equal(await field(page, 0).locator('.sel-row:not([hidden]) .sel').last().getAttribute('aria-label'), 'Schaden vom eigenen Commander: 0');
       for (let seat = 0; seat < 4; seat++) await field(page, seat).locator('.tab').nth(1).tap();
       assert.deepEqual(await unnamed(), []);
       assert.equal(await field(page, 0).locator('.sel-row:not([hidden]) .sel').nth(3).getAttribute('aria-label'), 'Monarch');

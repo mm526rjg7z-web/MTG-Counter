@@ -36,8 +36,9 @@ export const KIND_LABELS = {
 
 // The counter belongs to the commander, named after its owner, not to whoever controls it right now:
 // player A may take over B's commander and hit C with it, and C then counts damage "from B's commander".
-export function commanderDamageLabel(ownerName) {
-  return `Schaden vom Commander von ${ownerName}`;
+// If A hits B with it, B has taken damage from his own commander (`own`).
+export function commanderDamageLabel(ownerName, own = false) {
+  return own ? 'Schaden vom eigenen Commander' : `Schaden vom Commander von ${ownerName}`;
 }
 
 // Why a player is out (short, used in the chip of an eliminated field).
@@ -73,7 +74,7 @@ export function describeEntry(entry, game) {
     };
   }
   const label = entry.kind === 'cmd'
-    ? commanderDamageLabel(nameOf(entry.src))
+    ? commanderDamageLabel(nameOf(entry.src), entry.src === entry.pid)
     : KIND_LABELS[entry.kind];
   const { life } = entry;
   return {

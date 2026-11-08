@@ -76,8 +76,10 @@ test('invalid targets and deltas are ignored', () => {
   const g = game();
   assert.equal(adjust(g, life(9), 1, T0), g);
   assert.equal(adjust(g, { pid: 0, kind: 'nonsense' }, 1, T0), g);
-  assert.equal(adjust(g, cmd(0, 0), 1, T0), g, 'own commander damage is not tracked');
+  assert.notEqual(adjust(g, cmd(0, 0), 1, T0), g, 'the own seat is a source: an opponent may control the own commander');
   assert.equal(adjust(g, cmd(0, 7), 1, T0), g);
+  assert.equal(adjust(g, cmd(0, 1.5), 1, T0), g);
+  assert.equal(adjust(g, { pid: 0, kind: 'cmd' }, 1, T0), g, 'a commander needs a source');
   assert.equal(adjust(g, life(0), 0, T0), g);
   assert.equal(adjust(g, life(0), NaN, T0), g);
 });
@@ -356,6 +358,40 @@ test('restoring a saved game keeps the linked life change and drops a broken one
   assert.equal(restoreGame(onLife).history.at(-1).life, undefined, 'only commander entries carry a life part');
 });
 
+// ---- the own commander, taken over by an opponent --------------------------------------------------------------
+
+test('a player can take damage from his own commander (an opponent controls it), counted apart from every other commander', () => {
+  let g = game();
+  g = adjust(g, cmd(1, 1), 12, T0); // the own commander
+  g = adjust(g, cmd(1, 0), 12, T0 + 10_000); // another commander
+  assert.deepEqual(g.players[1].cmd, [12, 12, 0, 0]);
+  assert.equal(isEliminated(g.players[1]), false, '12 + 12 from two commanders is not 21 from one');
+  g = adjust(g, cmd(1, 1), 9, T0 + 20_000);
+  assert.deepEqual(eliminationReasons(g.players[1]), ['commander']);
+  assert.equal(g.players[1].life, 40, 'without the option life stays alone');
+});
+
+test('damage from the own commander also takes life with the option, and one undo reverts both', () => {
+  let g = game();
+  g = adjust(g, cmd(2, 2), 4, T0, linked);
+  assert.deepEqual([g.players[2].cmd[2], g.players[2].life], [4, 36]);
+  assert.deepEqual(g.history[0], { id: 1, t: T0, kind: 'cmd', pid: 2, src: 2, from: 0, to: 4, life: { from: 40, to: 36 } });
+  g = undo(g);
+  assert.deepEqual([g.players[2].cmd[2], g.players[2].life], [0, 40]);
+});
+
+test('damage from the own commander survives saving and loading and leaves the other players alone', () => {
+  let g = game(3);
+  g = adjust(g, cmd(0, 0), 5, T0);
+  g = adjust(g, cmd(0, 1), 2, T0 + 10_000);
+  const back = restoreGame(JSON.parse(JSON.stringify(g)));
+  assert.deepEqual(back.players[0].cmd, [5, 2, 0]);
+  assert.deepEqual(back.history, g.history);
+  assert.deepEqual(undo(undo(back)).players[0].cmd, [0, 0, 0]);
+  assert.deepEqual(back.players.slice(1).map((p) => p.cmd), [[0, 0, 0], [0, 0, 0]]);
+  assert.deepEqual(resetGame(g).players[0].cmd, [0, 0, 0], 'a new game starts at zero');
+});
+
 test('poison 10 and life 0 eliminate, and every reason is reported', () => {
   let g = game(2, 20);
   g = adjust(g, { pid: 0, kind: 'poison' }, POISON_LETHAL - 1, T0);
@@ -512,7 +548,7 @@ test('restoreGame rejects garbage and repairs damaged values', () => {
     monarch: 77,
     initiative: 1,
     players: [
-      { name: 5, color: 'red', life: 'x', poison: -4, energy: 1e9, experience: 2.9, cmd: [0, 3, 'z'] },
+      { name: 5, color: 'red', life: 'x', poison: -4, energy: 1e9, experience: 2.9, cmd: [4, 3, 'z'] },
       { name: '  ', color: 'red', life: 12, cmd: 'nope' },
       { color: 'nope', life: 1e7 },
     ],
@@ -522,6 +558,7 @@ test('restoreGame rejects garbage and repairs damaged values', () => {
       { id: 3, t: 3, kind: 'cmd', pid: 0, src: 0, from: 0, to: 1 },
       { id: 4, t: 4, kind: 'monarch', from: null, to: 1 },
       { id: 5, t: 5, kind: 'monarch', from: null, to: 99 },
+      { id: 6, t: 6, kind: 'cmd', pid: 0, src: 5, from: 0, to: 1 },
       'junk',
     ],
   });
@@ -531,10 +568,10 @@ test('restoreGame rejects garbage and repairs damaged values', () => {
   assert.equal(g.initiative, 1);
   assert.equal(g.players[0].name, 'Spieler 1');
   assert.deepEqual([g.players[0].life, g.players[0].poison, g.players[0].energy, g.players[0].experience], [40, 0, 999, 2]);
-  assert.deepEqual(g.players[0].cmd, [0, 3, 0]);
+  assert.deepEqual(g.players[0].cmd, [4, 3, 0], 'the own seat is kept, garbage becomes 0');
   assert.deepEqual(g.players[1].cmd, [0, 0, 0]);
   assert.equal(g.players[2].life, 9999);
   assert.equal(new Set(g.players.map((p) => p.color)).size, 3, 'duplicate / unknown colours are repaired');
-  assert.deepEqual(g.history.map((e) => e.id), [1, 4]);
+  assert.deepEqual(g.history.map((e) => e.id), [1, 3, 4], 'the own commander is a valid source, a seat that does not exist is not');
   assert.equal(g.nextEntryId, 5);
 });
